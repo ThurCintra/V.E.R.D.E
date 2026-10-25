@@ -14,7 +14,7 @@ def test_modelo_baixado_em_models(model_path):
 def test_carrega_modelo_com_80_classes_coco(detector):
     assert len(detector.class_names) == 80
     assert detector.class_names[0] == "person"
-    assert detector.mode == "coco-heuristico"
+    assert detector.backend == "coco" and detector.texture is None
 
 
 def test_modelo_inexistente_da_erro_claro(tmp_path):

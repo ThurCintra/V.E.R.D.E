@@ -15,6 +15,8 @@ KNOWN = {
     "yolov8m.pt": 45_000_000,
     "yolov8n-cls.pt": 4_000_000,
     "yolov8s-cls.pt": 10_000_000,
+    "yolov8s-worldv2.pt": 20_000_000,
+    "yoloe-11s-seg.pt": 20_000_000,
 }
 
 

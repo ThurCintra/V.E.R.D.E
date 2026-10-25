@@ -18,7 +18,7 @@ def test_video_conta_cada_objeto_uma_vez(detector, conveyor_video, coco_samples,
     assert per_frame > 5 * counted
     assert len(db.records()) == counted
     assert {r["source"] for r in db.records()} == {"video"}
-    assert all(r["track_id"] for r in db.records())
+    assert all(r["track_id"] is not None for r in db.records())  # os ids do ByteTrack começam em 0
     assert len(controller.backend.sent) == counted
     assert pipeline.counts["Plástico"] >= 1
 

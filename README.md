@@ -20,9 +20,13 @@ os comandos são só simulados).
 ```
 src/
   detector.py            detecção + mapeamento para a coleta seletiva + caixas nas cores CONAMA
-  material.py            2ª etapa: classificador de material do recorte de cada objeto
+  open_vocab.py          estágio 1: YOLO-World/YOLOE com vocabulário de resíduos
+  preprocess.py          CLAHE + filtro bilateral; calibração de fundo e iluminação
+  material_classifier.py estágio 2: especialista de textura (Hugging Face ou local) e ensemble 40/60
+  temporal.py            estágio 3: votação EMA por objeto, caixa suavizada, "parado no centro"
+  deep_scan.py           Deep Scan em segundo plano (Gemini 2.5 Flash ou análise local)
+  material.py            recorte e classificador local (usado pelo re-treino e pela avaliação)
   recycling.py           categorias, cores, comandos, mapeamento COCO e por nome de classe
-  tracker.py             rastreamento por IoU: cada objeto do vídeo conta uma vez
   pipeline.py            detecção → rastreamento → histórico → comporta, frame a frame
   train.py               fine-tuning (TACO, TrashNet, Roboflow ou data.yaml próprio)
   evaluate.py            acurácia, mAP e matrizes de confusão (relatórios em reports/)
@@ -38,7 +42,7 @@ app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/view
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
 firmware/lixeira/        sketch Arduino/ESP32 das comportas
-scripts/                 download do modelo e das imagens de teste
+scripts/                 download dos modelos, imagens de teste e verificar_modelos.py
 ```
 
 ## Como rodar
@@ -70,6 +74,44 @@ pytest
 uvicorn src.api:app --port 8000        # API: http://localhost:8000/docs
 streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 ```
+
+## Motor de precisão (3 estágios)
+
+```
+foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista de textura ──► 3. Estabilização ──► lixeira
+               YOLO-World + vocabulário      recorte de cada objeto         ByteTrack (id)
+               de resíduos, CLAHE, filtro    ViT do Hugging Face ou         EMA de 12 quadros
+               de tamanho, sem pessoas       YOLOv8-cls TrashNet local      Deep Scan (Gemini
+                                             40% forma + 60% textura         ou análise local)
+```
+
+| Modo (painel de calibração) | Estágios | Para quê |
+| --- | --- | --- |
+| ⚡ Rápido | 1 | vídeo ao vivo num PC simples |
+| 🎯 Alta precisão (padrão) | 1 + 2 | uso geral |
+| 🔬 Ultra precisão | 1 + 2 + Deep Scan | quando errar custa caro; objetos duvidosos ganham segunda análise com justificativa |
+
+- **Estágio 1** (`src/open_vocab.py`, `src/preprocess.py`): o YOLO-World procura ~50 descrições de resíduos
+  ("aluminum can", "milk carton", "bottle cap"...), cada uma ligada a uma lixeira. Antes, a imagem passa por CLAHE
+  no espaço LAB e por um filtro bilateral (reflexos e sombras). Caixas com mais de 70% da imagem (parede, mesa, o
+  corpo) e pessoas/mãos são descartadas. **Zerar fundo** no painel guarda a cena vazia: o que for igual a ela é
+  ignorado, e o realce se ajusta à luz.
+- **Estágio 2** (`src/material_classifier.py`): cada recorte passa por um classificador de textura. Com
+  `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face) usa o `transformers`; sem ele, ou se
+  o modelo não puder ser baixado, usa o YOLOv8-cls treinado no TrashNet que vem no repositório. O resultado é
+  combinado com o detector: 40% forma, 60% textura.
+- **Estágio 3** (`src/temporal.py`, `src/deep_scan.py`): veja *Rastreamento em vídeo*. No modo Ultra, um objeto
+  com certeza entre 35% e 60% parado no centro por 1,5 s (ou todos, com a opção ligada) vai para o **Deep Scan**
+  numa thread separada: o Gemini 2.5 Flash (se `GEMINI_API_KEY` estiver no `.env`; veja `.env.example`) ou uma
+  análise local de 8 variações do recorte. A resposta vem com uma justificativa ("Garrafa PET amassada - Plástico
+  reciclável").
+
+**Primeira execução:** o vocabulário do YOLO-World precisa do CLIP (~340 MB, baixado uma vez; depois o modelo com o
+vocabulário fica salvo em `models/verde_yoloworld.pt` e roda offline). Rode `iniciar verificar` para baixar e
+conferir tudo. Planos B automáticos: sem YOLO-World → YOLOE (baixa o MobileCLIP, ~600 MB) → YOLOv8 do COCO; sem
+Hugging Face → classificador local; sem Gemini → análise local.
+
+<!-- NUMEROS -->
 
 ## Como a classificação funciona
 
@@ -221,11 +263,13 @@ vão para `models/waste_detector.pt` (detector) e `models/material_cls.pt` (clas
 
 ## Rastreamento em vídeo
 
-`SimpleTracker` associa as detecções de frames seguidos por sobreposição (IoU). Um objeto só é contado
-depois de aparecer em 3 frames, o que descarta detecções-fantasma, e a trilha só morre após 10 frames
-sem ser vista, o que cobre oclusões rápidas. A categoria final é a mais votada ao longo da trilha. Assim,
-uma garrafa passando pela esteira gera um registro no histórico e um acionamento da comporta, não um
-por frame.
+Cada objeto ganha um número (`tracker_id`) do **ByteTrack** (pacote `trackers`, da mesma equipe do
+`supervision`), que o acompanha enquanto ele estiver na frente da câmera. Por objeto:
+
+- **votação temporal (EMA de 12 quadros):** a categoria mostrada só muda quando a nova passa de 50% na média *e*
+  supera a atual por 10 pontos. Um objeto em que o modelo hesita entre plástico e vidro não fica piscando;
+- **caixa suavizada** por um filtro de Savitzky-Golay (`scipy`), que tira o tremor sem atrasar a caixa;
+- **contagem única:** ele entra no histórico e aciona a comporta uma vez, depois de aparecer em 3 quadros.
 
 ## Impacto ambiental
 

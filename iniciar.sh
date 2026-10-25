@@ -4,6 +4,7 @@
 #   ./iniciar.sh api      sobe a API em http://localhost:8000/docs
 #   ./iniciar.sh tudo     dashboard + API
 #   ./iniciar.sh testes   roda os testes automáticos
+#   ./iniciar.sh verificar  confere (e baixa) os modelos do motor de precisão
 # Na primeira vez cria o ambiente e instala as dependências (alguns minutos).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -34,6 +35,8 @@ case "${1:-}" in
     exec "$PY" -m uvicorn src.api:app --port 8000 ;;
   testes)
     exec "$PY" -m pytest ;;
+  verificar)
+    exec "$PY" scripts/verificar_modelos.py ;;
   tudo)
     "$PY" -m uvicorn src.api:app --port 8000 &
     trap 'kill $! 2>/dev/null' EXIT ;;

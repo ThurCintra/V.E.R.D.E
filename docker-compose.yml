@@ -7,6 +7,9 @@ x-app: &app
   volumes:
     - ./models:/app/models     # coloque aqui o waste_detector.pt treinado
     - ./storage:/app/storage   # histórico SQLite, compartilhado entre API e dashboard
+  env_file:                    # GEMINI_API_KEY e afins (copie .env.example para .env); opcional
+    - path: .env
+      required: false
   environment:
     HARDWARE_BACKEND: ${HARDWARE_BACKEND:-sim}   # sim | serial | mqtt
     SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyUSB0}
@@ -15,7 +18,9 @@ x-app: &app
     MQTT_PORT: ${MQTT_PORT:-1883}
     MQTT_TOPIC: ${MQTT_TOPIC:-lixeira/comando}
     DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
-    WASTE_MODEL: ${WASTE_MODEL:-}                  # vazio = waste_detector.pt se existir, senão yolov8s.pt
+    WASTE_MODE: ${WASTE_MODE:-alta}                # rapido | alta | ultra
+    WASTE_DETECTOR: ${WASTE_DETECTOR:-yolo-world}  # yolo-world | yoloe | coco
+    WASTE_MODEL: ${WASTE_MODEL:-}                  # um peso específico (vazio = automático)
     WASTE_IMGSZ: ${WASTE_IMGSZ:-640}               # 960 ajuda com itens pequenos (mais lento)
     WASTE_MATERIAL_MODEL: ${WASTE_MATERIAL_MODEL:-auto}   # off desliga a 2ª etapa
     WASTE_MATERIAL_CONF: ${WASTE_MATERIAL_CONF:-0.6}

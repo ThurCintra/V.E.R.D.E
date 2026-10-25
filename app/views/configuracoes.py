@@ -1,4 +1,4 @@
-"""Configurações: sensibilidade, detalhes técnicos, lixeira automática e informações do sistema."""
+"""Configurações: detalhes técnicos, lixeira automática e informações do sistema."""
 
 import streamlit as st
 
@@ -10,15 +10,11 @@ ui.hero("Configurações", "Ajustes opcionais. Para usar no dia a dia, não prec
 cfg = ui.settings()
 
 with st.container(border=True):
-    st.markdown("#### 🎯 Sensibilidade")
-    value = st.pills(
-        "Sensibilidade", list(ui.SENSITIVITY), default=cfg["sensibilidade"], required=True,
-        label_visibility="collapsed",
-    )
-    if value != cfg["sensibilidade"]:
-        ui.save_setting("sensibilidade", value)
-    st.caption("**Detectar mais**: acha mais objetos, mas pode marcar coisas que não são lixo. "
-               "**Só com certeza**: mostra menos, mas erra menos.")
+    st.markdown("#### 🎚️ Precisão")
+    st.markdown("O modo de operação (Rápido, Alta precisão, Ultra precisão), a confiança mínima, o tamanho dos "
+                "objetos e a calibração do fundo ficam no **painel de calibração**: na página **Analisar**, abra a "
+                "barra lateral pela setinha **»** no canto superior esquerdo.")
+    st.page_link("views/analisar.py", label="Ir para Analisar", icon="📷")
 
 with st.container(border=True):
     st.markdown("#### 🔧 Detalhes técnicos")

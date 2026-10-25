@@ -1,74 +1,88 @@
-"""Segunda etapa (classificador de material) e modo de 1 item por foto, com um classificador falso controlado."""
+"""Estágio 2 (especialista de textura + ensemble 40/60) e modo de 1 item por foto, com um especialista falso."""
 
 import numpy as np
 import pytest
 
 from src.detector import Detection, Detector
-from src.material import MaterialPrediction, crop
+from src.material import crop
+from src.material_classifier import CATEGORY_ORDER, TexturePrediction
 
 
-class FakeClassifier:
-    """Devolve sempre a mesma previsão e registra o tamanho dos recortes recebidos."""
+class FakeTexture:
+    """Sempre a mesma previsão (``confidence`` na categoria, o resto dividido); registra os recortes recebidos."""
 
-    model_path = type("P", (), {"name": "fake.pt"})()
+    name = "fake"
+    model_path = "fake.pt"
 
     def __init__(self, label="glass", category="Vidro", confidence=0.9):
-        self.prediction = MaterialPrediction(label, category, confidence)
+        rest = (1 - confidence) / (len(CATEGORY_ORDER) - 1)
+        probs = {c: confidence if c == category else rest for c in CATEGORY_ORDER}
+        self.prediction = TexturePrediction(label, confidence, probs)
         self.seen = []
 
-    def classify(self, images):
+    def predict(self, images):
         self.seen += [img.shape for img in images]
         return [self.prediction for _ in images]
 
 
 @pytest.fixture
 def det_with(model_path):
-    def make(classifier, conf=0.6):
-        detector = Detector(model_path, material_model=None)
-        detector.material, detector.material_conf = classifier, conf
+    def make(texture, conf=0.6, mode="alta"):
+        detector = Detector(model_path, material_model=None, mode=mode)
+        detector.texture, detector.material_conf = texture, conf
         return detector
 
     return make
 
 
-def test_garrafa_vira_vidro_quando_o_classificador_tem_certeza(det_with, coco_samples):
-    fake = FakeClassifier("glass", "Vidro", 0.93)
+def test_textura_confiante_vence_o_detector_no_ensemble(det_with, coco_samples):
+    # Garrafa (forma: Plástico, ~0,7) + textura 93% vidro: 0,4×0,07 + 0,6×0,93 ≈ 0,59 Vidro contra ~0,29 Plástico
+    fake = FakeTexture("glass", "Vidro", 0.93)
     detections = det_with(fake).detect(coco_samples["vinho"], waste_only=True)
     bottles = [d for d in detections if d.label == "bottle"]
     assert bottles and all(d.category == "Vidro" and d.command == "V" for d in bottles)
     assert all(d.material == "glass" and d.material_confidence == pytest.approx(0.93) for d in bottles)
+    assert all(sum(d.probs.values()) == pytest.approx(1) for d in bottles)
     assert fake.seen  # recebeu os recortes
 
 
-def test_classificador_em_duvida_nao_muda_a_categoria(det_with, coco_samples):
-    detections = det_with(FakeClassifier("glass", "Vidro", 0.4)).detect(coco_samples["vinho"], waste_only=True)
+def test_textura_em_duvida_nao_vence_a_forma(det_with, coco_samples):
+    detections = det_with(FakeTexture("glass", "Vidro", 0.4)).detect(coco_samples["vinho"], waste_only=True)
     bottles = [d for d in detections if d.label == "bottle"]
     assert bottles and all(d.category == "Plástico" for d in bottles)
     assert all(d.material == "glass" for d in bottles)  # mas o palpite fica registrado
 
 
-def test_comida_nao_passa_pelo_classificador(det_with, coco_samples):
-    fake = FakeClassifier("metal", "Metal", 0.99)
+def test_comida_nao_passa_pela_textura(det_with, coco_samples):
+    fake = FakeTexture("metal", "Metal", 0.99)
     detections = det_with(fake).detect(coco_samples["garrafas_banana"], waste_only=True)
     bananas = [d for d in detections if d.label == "banana"]
     assert bananas and all(d.category == "Orgânico/Rejeito" and d.material is None for d in bananas)
+
+
+def test_modo_rapido_nao_usa_a_textura(det_with, coco_samples):
+    fake = FakeTexture("glass", "Vidro", 0.99)
+    detections = det_with(fake, mode="rapido").detect(coco_samples["vinho"], waste_only=True)
+    assert not fake.seen
+    assert all(d.category == "Plástico" for d in detections if d.label == "bottle")
 
 
 PLAIN = np.full((480, 640, 3), 200, np.uint8)  # foto lisa: o detector não acha nada
 
 
 def test_modo_um_item_classifica_a_foto_inteira(det_with):
-    detector = det_with(FakeClassifier("cardboard", "Papel", 0.88))
+    detector = det_with(FakeTexture("cardboard", "Papel", 0.88))
     assert detector.detect(PLAIN, waste_only=True) == []
     (whole,) = detector.detect(PLAIN, waste_only=True, single_item=True)
     assert whole.category == "Papel" and whole.label == "cardboard"
     assert whole.box == (0.0, 0.0, 640.0, 480.0)
+    assert whole.top_probs(1) == [("Papel", pytest.approx(0.88))]
 
 
 def test_modo_um_item_a_foto_inteira_decide_o_material(det_with, coco_samples):
-    # Na foto da mesa o COCO vê garrafas, bananas e bolo; no modo lixeira o item é um só, e o classificador
-    # (que olhou a foto inteira) decide a categoria. O detector dá a posição do objeto mais confiante.
-    plain = det_with(FakeClassifier("cardboard", "Papel", 0.9))
+    # Na foto da mesa o COCO vê garrafas, bananas e bolo; no modo lixeira o item é um só, e a textura da foto
+    # inteira decide a categoria. O detector dá a posição do objeto mais confiante.
+    plain = det_with(FakeTexture("cardboard", "Papel", 0.9))
     many = plain.detect(coco_samples["garrafas_banana"], waste_only=True)
     (item,) = plain.detect(coco_samples["garrafas_banana"], waste_only=True, single_item=True)
     best = max(many, key=lambda d: d.confidence)
@@ -76,13 +90,14 @@ def test_modo_um_item_a_foto_inteira_decide_o_material(det_with, coco_samples):
     assert item.box == best.box and item.label == best.label
 
 
-def test_modo_um_item_nao_inventa_quando_o_classificador_duvida(det_with):
-    detector = det_with(FakeClassifier("cardboard", "Papel", 0.3))
+def test_modo_um_item_nao_inventa_quando_a_textura_duvida(det_with):
+    detector = det_with(FakeTexture("cardboard", "Papel", 0.3))
     assert detector.detect(PLAIN, waste_only=True, single_item=True) == []
 
 
-def test_modo_reflete_a_segunda_etapa(det_with):
-    assert det_with(FakeClassifier()).mode == "coco+material"
+def test_descricao_reflete_os_estagios(det_with):
+    assert det_with(FakeTexture()).description == "coco + textura (fake)"
+    assert det_with(FakeTexture(), mode="rapido").description == "coco"
 
 
 def test_recorte_com_margem_dentro_da_imagem():
