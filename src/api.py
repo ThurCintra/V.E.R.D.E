@@ -57,8 +57,10 @@ def create_app(
         return {
             "status": "ok",
             "model": state.detector.model_path.name,
+            "detector": state.detector.backend,
             "mode": state.detector.mode,
-            "material_model": state.detector.material.model_path.name if state.detector.material else None,
+            "texture": state.detector.texture_name,
+            "pipeline": state.detector.description,
             "hardware": state.controller.backend.name,
         }
 
@@ -109,7 +111,8 @@ def create_app(
             }
         h, w = image.shape[:2]
         return {
-            "model": state.detector.mode,
+            "model": state.detector.backend,
+            "mode": state.detector.mode,
             "image": {"width": w, "height": h},
             "count": len(detections),
             "detections": [d.to_dict() for d in detections],

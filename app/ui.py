@@ -13,15 +13,25 @@ import streamlit as st
 from src import paths
 from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
 from src.database import Database
-from src.detector import Detector, annotate
+from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate
 from src.hardware_controller import HardwareController, choose_action, controller_from_env
 from src.material import crop
 from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
 from src.review import ReviewCollector
 
 EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩", "Orgânico/Rejeito": "🟫", NOT_WASTE: "⬜"}
-SENSITIVITY = {"Detectar mais": 0.15, "Equilibrada": 0.25, "Só com certeza": 0.45}
-DEFAULTS = {"sensibilidade": "Equilibrada", "um_objeto": False, "comportas": False, "detalhes": False}
+DEFAULTS = {
+    "um_objeto": False, "comportas": False, "detalhes": False,
+    # Painel de calibração de precisão
+    "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False,
+}
+MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
+MODE_HELP = {
+    "rapido": "Só o detector (YOLO-World). O mais rápido, bom para vídeo ao vivo num PC simples.",
+    "alta": "Detector + especialista de textura (40% forma, 60% textura). Separa PET de vidro, lata de copo.",
+    "ultra": "Alta precisão + Deep Scan: objetos duvidosos ganham uma segunda análise detalhada "
+             "(Gemini, se houver GEMINI_API_KEY; senão, análise local de 8 variações do recorte).",
+}
 
 
 # ---------------------------------------------------------------- recursos e configurações
@@ -77,9 +87,61 @@ def save_setting(name: str, value) -> None:
 
 
 def detector() -> Detector:
-    det = get_detector()
-    det.conf = SENSITIVITY.get(settings()["sensibilidade"], 0.25)
+    """O detector com as escolhas do painel de calibração aplicadas."""
+    det, cfg = get_detector(), settings()
+    det.mode = cfg["modo"] if cfg["modo"] in MODES else "alta"
+    det.conf = float(cfg["confianca"])
+    lo, hi = cfg["tamanho"]
+    det.min_area, det.max_area = max(lo / 100, 0.0005), hi / 100
+    det.deep_scan_all = bool(cfg["deep_scan_todos"])
     return det
+
+
+def calibration_panel(current_frame=None) -> None:
+    """Painel de Calibração de Precisão (barra lateral). ``current_frame``: função que devolve o quadro atual,
+    usado para zerar o fundo."""
+    cfg = settings()
+    with st.sidebar:
+        st.markdown("### 🎚️ Calibração de precisão")
+        mode = st.radio(
+            "Modo de operação", list(MODE_LABELS), format_func=MODE_LABELS.get,
+            index=list(MODE_LABELS).index(cfg["modo"]) if cfg["modo"] in MODE_LABELS else 1,
+        )
+        st.caption(MODE_HELP[mode])
+        if mode != cfg["modo"]:
+            save_setting("modo", mode)
+        if mode == "ultra":
+            all_scan = st.toggle("Deep Scan em todos os objetos", value=cfg["deep_scan_todos"],
+                                 help="Desligado: só nos duvidosos (certeza entre 35% e 60%) parados no centro.")
+            if all_scan != cfg["deep_scan_todos"]:
+                save_setting("deep_scan_todos", all_scan)
+
+        conf = st.slider("Confiança mínima (confidence threshold)", 0.05, 0.90, float(cfg["confianca"]), 0.05,
+                         help="Mais baixo acha mais objetos (e erra mais); mais alto mostra só o que tem certeza.")
+        if conf != cfg["confianca"]:
+            save_setting("confianca", conf)
+        size = st.slider("Tamanho do objeto (% da imagem)", 0.0, 100.0, tuple(cfg["tamanho"]), 0.5,
+                         help="Ignora o que for menor (ruído) ou maior (parede, mesa, a própria mão) que isso.")
+        if list(size) != list(cfg["tamanho"]):
+            save_setting("tamanho", list(size))
+
+        det = get_detector()
+        st.markdown("**Fundo e iluminação**")
+        st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
+                   "realce de contraste se ajusta à luz.")
+        if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None):
+            frame = current_frame() if current_frame else None
+            if frame is None:
+                st.warning("Não há imagem da cena para calibrar.")
+            else:
+                det.calibrate(frame)
+                st.success(f"Fundo calibrado (realce {det.calibration.clip_limit:.1f}).")
+        if det.calibration is not None and st.button("Desfazer calibração", width="stretch"):
+            det.calibrate(None)
+            st.rerun()
+        if det.calibration is not None:
+            st.caption("✅ Fundo calibrado: o que é igual à cena vazia é ignorado.")
+        st.caption(f"Motor: {det.description}" + (f" · ⚠️ {det.fallback_note}" if det.fallback_note else ""))
 
 
 def first_time(key: str) -> bool:
@@ -138,6 +200,12 @@ CSS = """
   .verde-impact .label { margin: 0; color: #4B5D52; }
   .verde-impact .eq { margin: .35rem 0 0 0; color: #1F8A4C; font-size: .93rem; }
   div[data-testid="stExpander"] details { border-radius: 16px; background: #FFFFFF; }
+  .verde-probbar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: #E8EEE6;
+                   margin: 6px 0 3px 0; }
+  .verde-probbar span { height: 100%; }
+  .verde-problabel { font-size: .85rem; color: #4B5D52; margin: 0 0 6px 0; }
+  .verde-scan { background: #F0F7F2; border-left: 4px solid #1F8A4C; border-radius: 8px; padding: 6px 10px;
+                font-size: .9rem; margin: 4px 0 6px 0; }
   /* Botões de escolha quebram linha em vez de rolar para o lado (no celular, sumiam opções) */
   div[data-testid="stButtonGroup"] [role="radiogroup"] { flex-wrap: wrap !important; overflow: visible !important;
                                                           row-gap: 6px; }
@@ -189,6 +257,26 @@ def legend() -> None:
     chips({name: 0 for name in CATEGORIES}, show_zero=True)
 
 
+def prob_bar(det) -> str:
+    """Barra de certeza por material (cores das lixeiras) + texto: "88% Plástico | 10% Vidro | 2% Metal"."""
+    if not det.probs:
+        return ""
+    ranked = sorted(det.probs.items(), key=lambda kv: -kv[1])
+    bar = "".join(
+        f"<span style='width:{p * 100:.1f}%;background:{CATEGORIES[c].hex}' title='{c} {p:.0%}'></span>"
+        for c, p in ranked if p >= 0.005
+    )
+    text = " | ".join(f"{p:.0%} {c.split('/')[0]}" for c, p in ranked[:3] if p >= 0.01)
+    return f"<div class='verde-probbar'>{bar}</div><p class='verde-problabel'>{text}</p>"
+
+
+def scan_note(det) -> str:
+    if not det.scan:
+        return ""
+    who = "IA Gemini" if det.scan.source == "gemini" else "análise detalhada"
+    return f"<div class='verde-scan'>🔬 <b>{det.scan.justification}</b><br><small>Deep Scan ({who})</small></div>"
+
+
 # ---------------------------------------------------------------- resultado de uma foto
 def _fmt(name: str) -> str:
     return f"{EMOJI[name]} {name.split('/')[0]}"
@@ -197,7 +285,7 @@ def _fmt(name: str) -> str:
 def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
     """O usuário tocou numa categoria: guarda a correção (ou desfaz, se voltou à original)."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
-    picked = st.session_state[f"pick_{key}_{i}"]
+    picked = st.session_state[f"pick_{key}_{i}_{det.category}"]
     if i in fixes:
         store.remove(fixes.pop(i)[1])
     if picked != det.category:
@@ -219,10 +307,13 @@ def _items_with_corrections(image, detections, key: str):
                 state = ""
                 if i in fixes:
                     state = " · ✅ correção salva" if fixes[i][0] != det.category else " · ✅ confirmado"
-                st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>", unsafe_allow_html=True)
+                st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>" + prob_bar(det)
+                            + scan_note(det), unsafe_allow_html=True)
                 st.pills(
                     f"Categoria do item {i + 1}", OPTIONS, default=fixes.get(i, (det.category,))[0],
-                    format_func=_fmt, key=f"pick_{key}_{i}", required=True, label_visibility="collapsed",
+                    # A categoria entra na chave: se o Deep Scan mudar a categoria, o botão marcado acompanha
+                    format_func=_fmt, key=f"pick_{key}_{i}_{det.category}", required=True,
+                    label_visibility="collapsed",
                     on_change=_on_pick, args=(store, image, det, i, key),
                 )
     pending = [i for i in range(len(detections)) if i not in fixes]
@@ -244,6 +335,20 @@ def _items_with_corrections(image, detections, key: str):
             det = replace(det, category=fix, weight_g=DEFAULT_WEIGHT_G[fix])
         result.append(det)
     return result
+
+
+def _deep_scan_photo(det, image, detections, data_key: str):
+    """Modo ultra numa foto: Deep Scan nos itens duvidosos (ou em todos), guardado por foto para não repetir."""
+    cache = st.session_state.setdefault(f"scan_{data_key}", {})
+    out = []
+    for i, d in enumerate(detections):
+        confidence = max(d.probs.values()) if d.probs else d.confidence
+        doubtful = DEEP_SCAN_RANGE[0] <= confidence <= DEEP_SCAN_RANGE[1]
+        if i not in cache and (det.deep_scan_all or doubtful):
+            with st.spinner(f"🔬 Deep Scan do item {i + 1}..."):
+                cache[i] = det.deep_scan(image, d)
+        out.append(cache.get(i, d))
+    return out
 
 
 def technical_table(detections) -> None:
@@ -269,7 +374,10 @@ def show_result(image, data_key: str, source: str) -> None:
     """Analisa a foto e mostra: imagem marcada, lixeira de cada item, correção e registro no histórico."""
     cfg = settings()
     det = detector()
+    st.session_state["ultima_imagem"] = image  # para "Zerar fundo"
     detections = det.detect(image, waste_only=True, single_item=cfg["um_objeto"])
+    if det.mode == "ultra" and det.scanner is not None:
+        detections = _deep_scan_photo(det, image, detections, data_key)
     collector = review()
     if collector and first_time(f"review_{data_key}"):
         collector.maybe_save(image, detections, source, cfg["um_objeto"])
@@ -286,8 +394,10 @@ def show_result(image, data_key: str, source: str) -> None:
         return
 
     with right:
-        # A lista de itens depende da sensibilidade e do modo: as correções ficam presas a essa combinação
-        detections = _items_with_corrections(image, detections, f"{data_key}-{det.conf}-{int(cfg['um_objeto'])}")
+        # A lista de itens depende da calibração: as correções ficam presas a essa combinação
+        key = (f"{data_key}-{det.conf}-{int(cfg['um_objeto'])}-{det.mode}-{det.min_area}-{det.max_area}"
+               f"-{int(det.deep_scan_all)}")
+        detections = _items_with_corrections(image, detections, key)
     with left:
         st.image(rgb(annotate(image, detections, list(range(1, len(detections) + 1)), compact=True)), width="stretch")
         if not detections:

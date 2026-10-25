@@ -10,7 +10,7 @@ import ui
 from src.detector import load_image
 from src.paths import DATA_DIR
 from src.pipeline import WastePipeline
-from src.recycling import CATEGORIES
+from src.recycling import CATEGORIES, label_pt
 
 EXAMPLE = DATA_DIR / "mesa_garrafas_banana.jpg"
 SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
@@ -71,6 +71,19 @@ def analyze_video(data: bytes, name: str) -> None:
         st.success("Registrado! Os números aparecem em **Meu impacto**.")
 
 
+def current_frame():
+    """O quadro para "Zerar fundo": da câmera contínua, ou a última foto analisada."""
+    if source == SOURCES[2]:
+        cap = cv2.VideoCapture(int(cam) if cam.isdigit() else cam)
+        ok, frame = cap.read()
+        cap.release()
+        return frame if ok else None
+    return st.session_state.get("ultima_imagem")
+
+
+cam = st.session_state.get("camera", "0")
+ui.calibration_panel(current_frame)
+
 if source == SOURCES[0]:
     upload = st.file_uploader(
         "Escolha uma foto ou vídeo do seu computador ou celular",
@@ -105,19 +118,31 @@ else:
         "ou câmera IP). Cada objeto é contado uma vez e registrado no seu impacto."
     )
     c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
-    cam = c1.text_input("Câmera", "0", help="0 é a primeira webcam, 1 a segunda... ou o endereço RTSP de uma câmera IP.")
+    c1.text_input("Câmera", key="camera",
+                  help="0 é a primeira webcam, 1 a segunda... ou o endereço RTSP de uma câmera IP.")
     running = c2.toggle("Ligar a câmera")
-    frame_slot, counts_slot = st.empty(), st.empty()
+    video_col, list_col = st.columns([1.4, 1], gap="large")
+    frame_slot = video_col.empty()
+    counts_slot, items_slot = list_col.empty(), list_col.empty()
     if running:
         controller = ui.get_controller() if cfg["comportas"] else None
         pipeline = WastePipeline(ui.detector(), db=ui.db(), controller=controller, source="ao-vivo", review=ui.review())
         try:
             # O loop termina quando a chave é desligada: o Streamlit reexecuta a página
-            for result in pipeline.process_video(int(cam) if cam.isdigit() else cam, every_n=2):
+            for result in pipeline.process_video(int(cam) if cam.isdigit() else cam, every_n=1):
                 frame_slot.image(ui.rgb(result.annotated), width="stretch")
                 with counts_slot.container():
+                    st.markdown("**Contados até agora** (cada objeto uma vez)")
                     ui.chips({name: pipeline.counts.get(name, 0) for name in CATEGORIES})
+                if result.index % 3 == 0:  # a lista não precisa mudar a cada quadro
+                    with items_slot.container():
+                        for d in result.detections:
+                            st.markdown(
+                                f"**#{d.tracker_id} {label_pt(d.label).capitalize()}** · {ui.EMOJI[d.category]} "
+                                f"{d.category}" + ui.prob_bar(d) + ui.scan_note(d), unsafe_allow_html=True,
+                            )
         except ValueError:
             st.error("Não consegui abrir essa câmera. Confira se ela está ligada ou tente outro número.")
     else:
-        st.caption("Ligue a chave para começar.")
+        frame_slot.caption("Ligue a chave para começar. Os números na imagem acompanham cada objeto enquanto ele "
+                           "estiver na frente da câmera.")

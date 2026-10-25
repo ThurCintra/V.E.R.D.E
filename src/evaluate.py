@@ -128,7 +128,7 @@ def evaluate_system(detector, test_dir: str | Path = TRASHNET_TEST, single_item:
     categories = [c for c in CATEGORIES if c in set(truth)]
     result = metrics(truth, pred, categories)
     result["recognized"] = round(sum(p != NONE for p in pred) / len(pred), 4)
-    result["mode"] = detector.mode
+    result["mode"] = getattr(detector, "description", type(detector).__name__)
     return result
 
 
@@ -201,9 +201,9 @@ def main(argv: list[str] | None = None) -> None:
         for name, material in (("so_coco", None), ("coco_material", "auto")):
             detector = Detector(args.detector, material_model=material)
             results[name] = evaluate_system(detector, args.test)
-            plot_confusion(results[name], f"Sistema ({detector.mode})", REPORTS_DIR / f"sistema_{name}.png")
+            plot_confusion(results[name], f"Sistema ({detector.description})", REPORTS_DIR / f"sistema_{name}.png")
             r = results[name]
-            print(f"{detector.mode:16} acurácia {r['accuracy']:.1%} · reconheceu algo em {r['recognized']:.1%}")
+            print(f"{detector.description:28} acurácia {r['accuracy']:.1%} · reconheceu algo em {r['recognized']:.1%}")
         _save("sistema", results)
     else:
         results = [evaluate_detector(m, args.data, s) for m in args.models for s in args.imgsz]

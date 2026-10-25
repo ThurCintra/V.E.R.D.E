@@ -63,5 +63,5 @@ def test_fine_tuning_gera_o_modelo_customizado(tmp_path, model_path):
     assert out.is_file()
 
     custom = Detector(out)
-    assert custom.mode == "customizado"
+    assert custom.backend == "customizado"
     assert list(custom.class_names.values()) == CATEGORY_NAMES

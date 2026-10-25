@@ -29,7 +29,8 @@ def post_image(client, path, **params):
 def test_health_e_categorias(client):
     health = client.get("/health").json()
     assert health == {
-        "status": "ok", "model": "yolov8n.pt", "mode": "coco-heuristico", "material_model": None, "hardware": "sim",
+        "status": "ok", "model": "yolov8n.pt", "detector": "coco", "mode": "alta", "texture": None,
+        "pipeline": "coco", "hardware": "sim",
     }
     cats = client.get("/categories").json()
     assert [c["command"] for c in cats] == ["P", "C", "M", "V", "O"]
@@ -39,11 +40,14 @@ def test_detect_devolve_classificacao_coordenadas_e_comando(client, coco_samples
     r = post_image(client, coco_samples["garrafas_banana"], actuate=True)
     assert r.status_code == 200
     body = r.json()
-    assert body["model"] == "coco-heuristico"
+    assert body["model"] == "coco" and body["mode"] == "alta"
     assert body["image"] == {"width": 480, "height": 640}
     assert body["count"] == len(body["detections"]) > 0
     first = body["detections"][0]
-    assert set(first) == {"label", "category", "confidence", "box", "color", "weight_g", "command", "material"}
+    assert set(first) == {
+        "label", "category", "confidence", "box", "color", "weight_g", "command", "material", "probs", "tracker_id",
+        "deep_scan",
+    }
     assert set(first["box"]) == {"x1", "y1", "x2", "y2"}
 
     action = body["action"]

@@ -27,7 +27,8 @@ def test_abre_na_pagina_analisar_sem_erros(app):
     app.run()
     assert not app.exception
     assert any("Analisar resíduos" in m.value for m in app.markdown)
-    assert [b.label for b in app.button] == ["✨ Experimentar com uma foto de exemplo"]
+    assert [b.label for b in app.main.button] == ["✨ Experimentar com uma foto de exemplo"]
+    assert "🧹 Zerar fundo e calibrar luz" in [b.label for b in app.sidebar.button]  # painel de calibração
 
 
 def test_foto_de_exemplo_mostra_itens_e_lixeiras(app):

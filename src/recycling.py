@@ -96,6 +96,21 @@ LABELS_PT = {
     "laptop": "notebook", "teddy bear": "bicho de pelúcia", "tie": "gravata",
     "cardboard": "papelão", "glass": "vidro", "metal": "metal", "paper": "papel", "plastic": "plástico",
     "trash": "rejeito",
+    # Vocabulário do detector de vocabulário aberto (src/open_vocab.py)
+    "plastic bottle": "garrafa plástica", "pet bottle": "garrafa PET", "plastic cup": "copo plástico",
+    "plastic bag": "sacola plástica", "plastic container": "pote plástico", "plastic lid": "tampa plástica",
+    "bottle cap": "tampinha", "plastic wrapper": "embalagem plástica", "styrofoam": "isopor",
+    "plastic straw": "canudo", "detergent bottle": "frasco de detergente", "yogurt cup": "pote de iogurte",
+    "cardboard box": "caixa de papelão", "newspaper": "jornal", "magazine": "revista", "paper cup": "copo de papel",
+    "paper bag": "saco de papel", "egg carton": "caixa de ovos", "milk carton": "caixa de leite",
+    "juice carton": "caixa de suco", "crumpled paper": "papel amassado", "aluminum can": "lata de alumínio",
+    "soda can": "lata de refrigerante", "tin can": "lata de conserva", "food can": "lata de comida",
+    "metal lid": "tampa de metal", "aerosol can": "lata de aerossol", "aluminum foil": "papel-alumínio",
+    "metal scrap": "sucata", "glass bottle": "garrafa de vidro", "wine bottle": "garrafa de vinho",
+    "beer bottle": "garrafa de cerveja", "glass jar": "pote de vidro", "drinking glass": "copo de vidro",
+    "broken glass": "vidro quebrado", "food waste": "resto de comida", "banana peel": "casca de banana",
+    "fruit": "fruta", "apple core": "miolo de maçã", "vegetable": "legume", "leftover food": "sobra de comida",
+    "cigarette butt": "bituca", "used tissue": "lenço usado", "diaper": "fralda",
 }
 
 

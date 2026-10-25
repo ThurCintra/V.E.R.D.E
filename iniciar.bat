@@ -4,6 +4,7 @@ rem   iniciar          abre o dashboard
 rem   iniciar api      sobe a API em http://localhost:8000/docs
 rem   iniciar tudo     dashboard + API (a API abre em outra janela)
 rem   iniciar testes   roda os testes automaticos
+rem   iniciar verificar  confere (e baixa) os modelos do motor de precisao
 rem Na primeira vez cria o ambiente e instala as dependencias (alguns minutos).
 setlocal EnableExtensions
 cd /d "%~dp0"
@@ -45,6 +46,7 @@ if not exist data\esteira.mp4 "%VENV_PY%" scripts\prepare_data.py
 
 if /i "%~1"=="api" goto api
 if /i "%~1"=="testes" goto testes
+if /i "%~1"=="verificar" goto verificar
 if /i "%~1"=="tudo" call :liberar_porta 8000 uvicorn
 if /i "%~1"=="tudo" start "V.E.R.D.E. - API" "%VENV_PY%" -m uvicorn src.api:app --port 8000
 call :liberar_porta 8501 streamlit
@@ -60,6 +62,11 @@ echo.
 call :liberar_porta 8000 uvicorn
 echo [V.E.R.D.E.] API em http://localhost:8000/docs  -  para parar, feche esta janela ou aperte Ctrl+C
 "%VENV_PY%" -m uvicorn src.api:app --port 8000
+goto fim
+
+:verificar
+"%VENV_PY%" scripts\verificar_modelos.py
+pause
 goto fim
 
 :testes

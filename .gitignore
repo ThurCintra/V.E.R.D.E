@@ -8,3 +8,5 @@ storage/
 datasets/
 *.db
 *.db-*
+models/*.ts
+.env
