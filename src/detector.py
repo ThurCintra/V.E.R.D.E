@@ -30,7 +30,7 @@ import numpy as np
 from ultralytics import YOLO
 
 from src.material import REFINABLE_LABELS, MaterialClassifier, crop
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, MATERIAL_MODEL
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, active_material_model
 from src.recycling import CATEGORIES, COCO_RULES, DEFAULT_WEIGHT_G, METAL, category_from_name
 from src.weights import resolve
 
@@ -85,8 +85,8 @@ class Detector:
         material_model: str | Path | None = "auto",
         material_conf: float = 0.6,
     ):
-        """``material_model``: caminho do classificador de material, ``"auto"`` (usa ``models/material_cls.pt`` se
-        existir) ou ``None`` (desligado). ``material_conf``: confiança mínima para ele mudar a categoria."""
+        """``material_model``: caminho do classificador de material, ``"auto"`` (o re-treinado com as correções
+        do usuário, se existir; senão ``models/material_cls.pt``) ou ``None`` (desligado). ``material_conf``: confiança mínima para ele mudar a categoria."""
         model_path = resolve(model_path) if model_path else default_model_path()
         if not model_path.is_file():
             raise FileNotFoundError(
@@ -102,7 +102,8 @@ class Detector:
         self.is_coco = len(names) == 80 and names[0] == "person"
 
         if material_model == "auto":
-            material_model = MATERIAL_MODEL if MATERIAL_MODEL.is_file() else None
+            material_model = active_material_model()
+            material_model = material_model if material_model.is_file() else None
         self.material = MaterialClassifier(material_model, device) if material_model else None
         self.material_conf = material_conf
 

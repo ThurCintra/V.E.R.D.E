@@ -25,7 +25,7 @@ def test_dashboard_abre_com_as_tres_abas(app):
     app.run()
     assert not app.exception
     assert [t.label for t in app.tabs] == [
-        "Monitoramento ao Vivo", "Análise de Imagem/Vídeo", "Relatório de Impacto Ambiental",
+        "Monitoramento ao Vivo", "Análise de Imagem/Vídeo", "Relatório de Impacto Ambiental", "Correções e Treino",
     ]
     assert any("Nenhuma detecção" in i.value for i in app.info)
 

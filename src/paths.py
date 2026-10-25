@@ -12,5 +12,13 @@ DATA_DIR = ROOT / "data"
 DEFAULT_MODEL = MODELS_DIR / "yolov8s.pt"  # o yolov8n (mais rápido) acha bem menos objetos em pilhas de lixo
 CUSTOM_MODEL = MODELS_DIR / "waste_detector.pt"  # detector de resíduos, gerado por src/train.py
 MATERIAL_MODEL = MODELS_DIR / "material_cls.pt"  # classificador de material (TrashNet), idem
-REVIEW_DIR = Path(os.environ.get("WASTE_REVIEW_DIR", ROOT / "storage" / "review"))  # casos duvidosos
-DB_PATH = Path(os.environ.get("WASTE_DB_PATH", ROOT / "storage" / "detections.db"))
+STORAGE_DIR = Path(os.environ.get("WASTE_STORAGE_DIR", ROOT / "storage"))  # dados do usuário, fora do Git
+USER_MATERIAL_MODEL = STORAGE_DIR / "material_cls.pt"  # classificador re-treinado com as correções do usuário
+CORRECTIONS_DIR = Path(os.environ.get("WASTE_CORRECTIONS_DIR", STORAGE_DIR / "corrections"))  # do usuário
+REVIEW_DIR = Path(os.environ.get("WASTE_REVIEW_DIR", STORAGE_DIR / "review"))  # casos duvidosos
+DB_PATH = Path(os.environ.get("WASTE_DB_PATH", STORAGE_DIR / "detections.db"))
+
+
+def active_material_model() -> Path:
+    """O classificador em uso: o re-treinado pelo usuário, se existir; senão o que vem no repositório."""
+    return USER_MATERIAL_MODEL if USER_MATERIAL_MODEL.is_file() else MATERIAL_MODEL
