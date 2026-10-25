@@ -25,7 +25,7 @@ if ! cmp -s requirements.txt .venv/requirements.instalado; then
   cp requirements.txt .venv/requirements.instalado
 fi
 
-[ -f models/yolov8n.pt ] || "$PY" scripts/download_model.py
+[ -f models/yolov8s.pt ] || "$PY" scripts/download_model.py
 [ -f data/esteira.mp4 ] || "$PY" scripts/prepare_data.py
 
 case "${1:-}" in

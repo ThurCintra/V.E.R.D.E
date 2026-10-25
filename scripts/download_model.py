@@ -1,7 +1,7 @@
 """Baixa pesos do YOLOv8 para models/ (não baixa de novo o que já existe).
 
-    python scripts/download_model.py               # yolov8n.pt (detector padrão)
-    python scripts/download_model.py yolov8s.pt    # detector maior, mais preciso
+    python scripts/download_model.py               # yolov8s.pt (detector padrão)
+    python scripts/download_model.py yolov8n.pt    # detector menor e mais rápido, acha menos objetos
 """
 
 import sys

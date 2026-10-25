@@ -39,8 +39,8 @@ if errorlevel 1 goto falhou
 copy /y requirements.txt .venv\requirements.instalado >nul
 
 :modelo
-if not exist models\yolov8n.pt "%VENV_PY%" scripts\download_model.py
-if not exist models\yolov8n.pt goto falhou
+if not exist models\yolov8s.pt "%VENV_PY%" scripts\download_model.py
+if not exist models\yolov8s.pt goto falhou
 if not exist data\esteira.mp4 "%VENV_PY%" scripts\prepare_data.py
 
 if /i "%~1"=="api" goto api

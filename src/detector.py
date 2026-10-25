@@ -4,7 +4,7 @@ Dois modos, escolhidos automaticamente pelo modelo carregado:
 
 - **Modelo customizado** (``models/waste_detector.pt``, gerado por ``src/train.py``): as classes já são
   materiais/resíduos e viram categoria pelo nome.
-- **Heurístico COCO** (``models/yolov8n.pt``, enquanto não há modelo treinado): as classes do COCO que
+- **Heurístico COCO** (``models/yolov8s.pt``, enquanto não há modelo treinado): as classes do COCO que
   aparecem no lixo (garrafa, copo, talheres, frutas, livro…) são mapeadas para as 5 categorias da coleta
   seletiva.
 
