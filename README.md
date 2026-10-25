@@ -34,7 +34,7 @@ src/
   report.py              exportação CSV e PDF
   api.py                 API REST (FastAPI)
   hardware_controller.py comandos para o microcontrolador (simulado, serial, MQTT)
-app/dashboard.py         dashboard Streamlit
+app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/views/, peças em app/ui.py
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
 firmware/lixeira/        sketch Arduino/ESP32 das comportas
@@ -244,12 +244,21 @@ Servem para acompanhar tendências, não como medição. Ajuste `FACTORS` e `COC
 
 ## Dashboard
 
-- **Monitoramento ao Vivo**: câmera do navegador (foto) ou câmera/stream RTSP do servidor (vídeo contínuo
-  com rastreamento e contagem por categoria).
-- **Análise de Imagem/Vídeo**: envio de arquivos. O vídeo é processado com rastreamento, e cada item é
-  registrado uma vez.
-- **Relatório de Impacto Ambiental**: filtro por período, itens por dia, peso por categoria, CO2 acumulado
-  e exportação em CSV e PDF.
+Menu no topo com quatro páginas, pensado para quem nunca usou o sistema:
+
+- **📷 Analisar**: envie uma foto ou vídeo, tire uma foto com a câmera, ou deixe uma câmera analisando sem parar.
+  Cada item ganha um número e a cor da lixeira; um cartão grande diz em qual lixeira colocar ("Lixeira
+  VERMELHA"). Errou? Toque na categoria certa do item: a correção fica guardada. **Registrar no meu impacto**
+  soma os itens ao histórico. Há uma foto de exemplo para experimentar sem ter nada à mão.
+- **🌳 Meu impacto**: CO₂, energia e água poupados, com comparações do dia a dia (km sem carro, dias de energia
+  de uma casa, banhos), gráficos por dia e por lixeira, e relatório em PDF ou planilha CSV.
+- **🎓 Ensinar o sistema**: quantos exemplos você já corrigiu e o botão de re-treino.
+- **⚙️ Configurações**: sensibilidade (Detectar mais / Equilibrada / Só com certeza), detalhes técnicos,
+  lixeira automática com Arduino/ESP32 (desligada por padrão: só serve para quem montou uma lixeira com motores)
+  e casos duvidosos para baixar.
+
+As escolhas ficam salvas em `storage/configuracoes.json`. O visual (cores, cantos, menu) está em
+`.streamlit/config.toml` e no CSS de `app/ui.py`; cada página fica em `app/views/`.
 
 ## API REST
 

@@ -1,0 +1,22 @@
+# Visual do V.E.R.D.E. (o Streamlit lê este arquivo quando é iniciado na pasta do projeto, como o iniciar faz)
+[theme]
+base = "light"
+primaryColor = "#1F8A4C"
+backgroundColor = "#F5F8F4"
+secondaryBackgroundColor = "#E8F0E6"
+textColor = "#1C2B22"
+linkColor = "#1F8A4C"
+baseRadius = "large"
+showWidgetBorder = true
+showSidebarBorder = true
+chartCategoricalColors = ["#D62828", "#1D4ED8", "#E0B000", "#2A9D3A", "#7B4A1E"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F5EE"
+
+[client]
+toolbarMode = "viewer"   # esconde o botão "Deploy" e os menus de desenvolvedor
+
+[browser]
+gatherUsageStats = false

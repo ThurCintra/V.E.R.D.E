@@ -8,9 +8,11 @@ DASHBOARD = str(Path(__file__).resolve().parent.parent / "app" / "dashboard.py")
 
 @pytest.fixture
 def app(tmp_path, monkeypatch, model_path):
+    monkeypatch.setenv("WASTE_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("WASTE_DB_PATH", str(tmp_path / "dash.db"))
+    monkeypatch.setenv("WASTE_MODEL", str(model_path))  # yolov8n: mais rápido nos testes
     monkeypatch.setenv("HARDWARE_BACKEND", "sim")
-    # paths.py lê o ambiente na importação: recarrega para o banco temporário valer
+    # paths.py lê o ambiente na importação: recarrega para as pastas temporárias valerem
     import importlib
 
     import src.paths
@@ -21,16 +23,34 @@ def app(tmp_path, monkeypatch, model_path):
     importlib.reload(src.paths)
 
 
-def test_dashboard_abre_com_as_tres_abas(app):
+def test_abre_na_pagina_analisar_sem_erros(app):
     app.run()
     assert not app.exception
-    assert [t.label for t in app.tabs] == [
-        "Monitoramento ao Vivo", "Análise de Imagem/Vídeo", "Relatório de Impacto Ambiental", "Correções e Treino",
-    ]
-    assert any("Nenhuma detecção" in i.value for i in app.info)
+    assert any("Analisar resíduos" in m.value for m in app.markdown)
+    assert [b.label for b in app.button] == ["✨ Experimentar com uma foto de exemplo"]
 
 
-def test_relatorio_mostra_o_historico(app, tmp_path):
+def test_foto_de_exemplo_mostra_itens_e_lixeiras(app):
+    app.run()
+    app.button[0].click().run()
+    assert not app.exception
+    html = " ".join(m.value for m in app.markdown)
+    # A caixa de leite (o COCO vê "garrafa") vira papelão pelo classificador: lixeira azul. Bananas: marrom.
+    assert "Lixeira AZUL" in html and "Lixeira MARROM" in html
+    assert any(b.label == "✅ Registrar no meu impacto" for b in app.button)
+
+
+def test_corrigir_um_item_guarda_o_exemplo(app, tmp_path):
+    app.run()
+    app.button[0].click().run()
+    first = app.pills[1]  # [0] é a escolha da fonte (enviar/tirar foto/câmera)
+    first.set_value("Metal").run()
+    assert not app.exception
+    saved = list((tmp_path / "storage" / "corrections" / "metal").glob("*.jpg"))
+    assert len(saved) == 1
+
+
+def test_meu_impacto_mostra_o_historico(app, tmp_path):
     from src.database import Database
 
     db = Database(tmp_path / "dash.db")
@@ -38,7 +58,14 @@ def test_relatorio_mostra_o_historico(app, tmp_path):
     db.add("book", "Papel", 0.8, 300)
     db.close()
     app.run()
+    app.switch_page("views/impacto.py").run()
     assert not app.exception
-    metrics = {m.label: m.value for m in app.metric}
-    assert metrics["Itens"] == "2"
-    assert metrics["Peso estimado"] == "0.33 kg"
+    html = " ".join(m.value for m in app.markdown)
+    assert "itens separados" in html and ">2<" in html
+
+
+def test_paginas_de_ensinar_e_configuracoes_abrem(app):
+    app.run()
+    for page in ("views/ensinar.py", "views/configuracoes.py"):
+        app.switch_page(page).run()
+        assert not app.exception, page

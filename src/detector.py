@@ -223,15 +223,21 @@ def load_image(image: str | Path | bytes | np.ndarray) -> np.ndarray:
     raise ValueError("A imagem deve ser um caminho, bytes de arquivo ou um array HxWx3")
 
 
-def annotate(image: np.ndarray, detections, track_ids: list[int] | None = None) -> np.ndarray:
-    """Desenha as caixas nas cores da CONAMA (cinza para o que não é resíduo). Não altera a imagem original."""
+def annotate(image: np.ndarray, detections, track_ids: list[int] | None = None, compact: bool = False) -> np.ndarray:
+    """Desenha as caixas nas cores da CONAMA (cinza para o que não é resíduo). Não altera a imagem original.
+
+    ``compact``: só o número e a categoria (``#3 Metal``), para quem não precisa dos detalhes técnicos.
+    """
     out = image.copy()
     thickness = max(2, round(min(out.shape[:2]) / 300))
     for i, det in enumerate(detections):
         color = CATEGORIES[det.category].bgr if det.category else (150, 150, 150)
         x1, y1, x2, y2 = (int(v) for v in det.box)
         cv2.rectangle(out, (x1, y1), (x2, y2), color, thickness)
-        text = f"{det.category or det.label} | {det.label} {det.confidence:.0%}"
+        if compact:  # "Orgânico/Rejeito" ocuparia meia caixa: só o primeiro nome
+            text = (det.category or det.label).split("/")[0]
+        else:
+            text = f"{det.category or det.label} | {det.label} {det.confidence:.0%}"
         if track_ids is not None:
             text = f"#{track_ids[i]} {text}"
         text = _ascii(text)  # as fontes do OpenCV não têm acentos

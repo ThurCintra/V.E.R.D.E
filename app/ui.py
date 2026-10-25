@@ -1,0 +1,317 @@
+"""Peças compartilhadas pelas páginas do dashboard: recursos em cache, configurações, estilo e componentes."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import replace
+
+import cv2
+import pandas as pd
+import streamlit as st
+
+from src import paths
+from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
+from src.database import Database
+from src.detector import Detector, annotate
+from src.hardware_controller import HardwareController, choose_action, controller_from_env
+from src.material import crop
+from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
+from src.review import ReviewCollector
+
+EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩", "Orgânico/Rejeito": "🟫", NOT_WASTE: "⬜"}
+SENSITIVITY = {"Detectar mais": 0.15, "Equilibrada": 0.25, "Só com certeza": 0.45}
+DEFAULTS = {"sensibilidade": "Equilibrada", "um_objeto": False, "comportas": False, "detalhes": False}
+
+
+# ---------------------------------------------------------------- recursos e configurações
+@st.cache_resource
+def get_detector() -> Detector:
+    return Detector.from_env()
+
+
+@st.cache_resource
+def get_db(path: str) -> Database:
+    return Database(path)
+
+
+@st.cache_resource
+def get_controller() -> HardwareController:
+    return controller_from_env()
+
+
+@st.cache_resource
+def get_review(path: str) -> ReviewCollector | None:
+    return ReviewCollector.from_env(path)
+
+
+def db() -> Database:
+    return get_db(str(paths.DB_PATH))
+
+
+def review() -> ReviewCollector | None:
+    return get_review(str(paths.REVIEW_DIR))
+
+
+def _settings_file():
+    return paths.STORAGE_DIR / "configuracoes.json"
+
+
+def settings() -> dict:
+    """Configurações do usuário, guardadas em storage/configuracoes.json (valem depois de reiniciar)."""
+    if "_cfg" not in st.session_state:
+        cfg = dict(DEFAULTS)
+        try:
+            cfg.update(json.loads(_settings_file().read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            pass
+        st.session_state["_cfg"] = cfg
+    return st.session_state["_cfg"]
+
+
+def save_setting(name: str, value) -> None:
+    cfg = settings()
+    cfg[name] = value
+    _settings_file().parent.mkdir(parents=True, exist_ok=True)
+    _settings_file().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def detector() -> Detector:
+    det = get_detector()
+    det.conf = SENSITIVITY.get(settings()["sensibilidade"], 0.25)
+    return det
+
+
+def first_time(key: str) -> bool:
+    """True só na primeira vez nesta sessão. O Streamlit reexecuta a página a cada clique: sem isso, a mesma
+    foto seria registrada no histórico (e a comporta acionada) de novo a cada botão apertado."""
+    done = st.session_state.setdefault("_feito", set())
+    if key in done:
+        return False
+    done.add(key)
+    return True
+
+
+def image_key(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()[:12]
+
+
+def rgb(image_bgr):
+    return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+
+def thumbnail(image_bgr, size: int = 160):
+    """Miniatura quadrada (o objeto centralizado sobre branco), para a lista de itens ficar alinhada."""
+    import numpy as np
+
+    h, w = image_bgr.shape[:2]
+    scale = size / max(h, w)
+    small = cv2.resize(image_bgr, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    canvas = np.full((size, size, 3), 255, np.uint8)
+    y, x = (size - small.shape[0]) // 2, (size - small.shape[1]) // 2
+    canvas[y : y + small.shape[0], x : x + small.shape[1]] = small
+    return rgb(canvas)
+
+
+# ---------------------------------------------------------------- visual
+CSS = """
+<style>
+  .block-container { padding-top: 2.2rem; max-width: 1200px; }
+  h1, h2, h3 { letter-spacing: -0.01em; }
+  .verde-hero h1 { font-size: 2rem; margin: 0 0 .2rem 0; }
+  .verde-hero p { color: #4B5D52; font-size: 1.05rem; margin: 0 0 1.2rem 0; }
+  .verde-card { background: #FFFFFF; border: 1px solid #E1EAE0; border-radius: 18px; padding: 18px 20px;
+                box-shadow: 0 1px 2px rgba(20, 50, 30, .05); height: 100%; }
+  .verde-step { display: flex; gap: 14px; align-items: flex-start; }
+  .verde-step b { font-size: 1.05rem; }
+  .verde-step .n { flex: 0 0 34px; height: 34px; border-radius: 50%; background: #1F8A4C; color: #fff;
+                   display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .verde-step p { margin: .15rem 0 0 0; color: #4B5D52; font-size: .95rem; }
+  .verde-bin { border-radius: 18px; padding: 18px 22px; color: #fff; margin-bottom: 10px; }
+  .verde-bin .small { opacity: .9; font-size: .9rem; margin: 0; }
+  .verde-bin .big { font-size: 1.45rem; font-weight: 700; margin: 0; line-height: 1.25; }
+  .verde-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px 0; }
+  .verde-chip { background: #FFFFFF; border: 1px solid #E1EAE0; border-radius: 999px; padding: 5px 12px;
+                font-size: .95rem; }
+  .verde-muted { color: #5F7166; font-size: .92rem; }
+  .verde-impact .value { font-size: 1.9rem; font-weight: 750; margin: 0; color: #1C2B22; }
+  .verde-impact .label { margin: 0; color: #4B5D52; }
+  .verde-impact .eq { margin: .35rem 0 0 0; color: #1F8A4C; font-size: .93rem; }
+  div[data-testid="stExpander"] details { border-radius: 16px; background: #FFFFFF; }
+  /* Botões de escolha quebram linha em vez de rolar para o lado (no celular, sumiam opções) */
+  div[data-testid="stButtonGroup"] [role="radiogroup"] { flex-wrap: wrap !important; overflow: visible !important;
+                                                          row-gap: 6px; }
+</style>
+"""
+
+
+def style() -> None:
+    st.markdown(CSS, unsafe_allow_html=True)
+
+
+def hero(title: str, subtitle: str) -> None:
+    st.markdown(f"<div class='verde-hero'><h1>{title}</h1><p>{subtitle}</p></div>", unsafe_allow_html=True)
+
+
+def steps(items: list[tuple[str, str]]) -> None:
+    cols = st.columns(len(items))
+    for i, (col, (title, text)) in enumerate(zip(cols, items), start=1):
+        col.markdown(
+            f"<div class='verde-card verde-step'><div class='n'>{i}</div><div><b>{title}</b><p>{text}</p></div></div>",
+            unsafe_allow_html=True,
+        )
+
+
+def bin_card(category: str, count: int | None = None) -> None:
+    """Faixa grande na cor da lixeira: "Coloque na lixeira VERMELHA"."""
+    cat = CATEGORIES[category]
+    ink = "#1C2B22" if category == "Metal" else "#FFFFFF"  # texto escuro no amarelo
+    what = f"{count} {'item' if count == 1 else 'itens'} de {category}" if count else category
+    st.markdown(
+        f"<div class='verde-bin' style='background:{cat.hex};color:{ink}'>"
+        f"<p class='small'>{what}</p><p class='big'>Lixeira {cat.color_name.upper()}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def chips(counts: dict[str, int], show_zero: bool = False) -> None:
+    html = "".join(
+        f"<span class='verde-chip'>{EMOJI[name]} {name}" + (f" <b>×{n}</b>" if n else "") + "</span>"
+        for name, n in counts.items()
+        if n or show_zero
+    )
+    if html:
+        st.markdown(f"<div class='verde-chips'>{html}</div>", unsafe_allow_html=True)
+
+
+def legend() -> None:
+    """As 5 lixeiras e suas cores, em linha."""
+    chips({name: 0 for name in CATEGORIES}, show_zero=True)
+
+
+# ---------------------------------------------------------------- resultado de uma foto
+def _fmt(name: str) -> str:
+    return f"{EMOJI[name]} {name.split('/')[0]}"
+
+
+def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
+    """O usuário tocou numa categoria: guarda a correção (ou desfaz, se voltou à original)."""
+    fixes = st.session_state.setdefault(f"fix_{key}", {})
+    picked = st.session_state[f"pick_{key}_{i}"]
+    if i in fixes:
+        store.remove(fixes.pop(i)[1])
+    if picked != det.category:
+        fixes[i] = (picked, store.add(image, det.box, det.category, picked, det.label, "dashboard"))
+
+
+def _items_with_corrections(image, detections, key: str):
+    """Lista os itens, cada um com os botões de categoria. Devolve as detecções corrigidas."""
+    fixes = st.session_state.setdefault(f"fix_{key}", {})
+    store = CorrectionStore(paths.CORRECTIONS_DIR)
+    st.markdown("**Itens encontrados** · <span class='verde-muted'>errou? toque na categoria certa</span>",
+                unsafe_allow_html=True)
+    for i, det in enumerate(detections):
+        with st.container(border=True):
+            thumb, body = st.columns([1, 4], vertical_alignment="center")
+            thumb.image(thumbnail(crop(image, det.box)), width=78)
+            with body:
+                name = label_pt(det.label).capitalize()
+                state = ""
+                if i in fixes:
+                    state = " · ✅ correção salva" if fixes[i][0] != det.category else " · ✅ confirmado"
+                st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>", unsafe_allow_html=True)
+                st.pills(
+                    f"Categoria do item {i + 1}", OPTIONS, default=fixes.get(i, (det.category,))[0],
+                    format_func=_fmt, key=f"pick_{key}_{i}", required=True, label_visibility="collapsed",
+                    on_change=_on_pick, args=(store, image, det, i, key),
+                )
+    pending = [i for i in range(len(detections)) if i not in fixes]
+    if pending and st.button(
+        f"👍 Os outros {len(pending)} estão certos" if len(pending) < len(detections) else "👍 Está tudo certo",
+        key=f"ok_{key}", help="Confirma os itens que você não corrigiu. Isso também ensina o sistema.",
+    ):
+        for i in pending:
+            det = detections[i]
+            fixes[i] = (det.category, store.add(image, det.box, det.category, det.category, det.label, "dashboard"))
+        st.rerun()
+
+    result = []
+    for i, det in enumerate(detections):
+        fix = fixes.get(i, (None,))[0]
+        if fix == NOT_WASTE:
+            continue
+        if fix and fix != det.category:
+            det = replace(det, category=fix, weight_g=DEFAULT_WEIGHT_G[fix])
+        result.append(det)
+    return result
+
+
+def technical_table(detections) -> None:
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "#": i + 1,
+                    "Categoria": d.category,
+                    "Classe": d.label,
+                    "Confiança": f"{d.confidence:.0%}",
+                    "Material (2ª etapa)": f"{d.material} {d.material_confidence:.0%}" if d.material else "-",
+                    "Peso estimado (g)": d.weight_g,
+                }
+                for i, d in enumerate(detections)
+            ]
+        ),
+        hide_index=True,
+    )
+
+
+def show_result(image, data_key: str, source: str) -> None:
+    """Analisa a foto e mostra: imagem marcada, lixeira de cada item, correção e registro no histórico."""
+    cfg = settings()
+    det = detector()
+    detections = det.detect(image, waste_only=True, single_item=cfg["um_objeto"])
+    collector = review()
+    if collector and first_time(f"review_{data_key}"):
+        collector.maybe_save(image, detections, source, cfg["um_objeto"])
+
+    left, right = st.columns([1.15, 1], gap="large")
+    if not detections:
+        left.image(rgb(image), width="stretch")
+        with right:
+            st.markdown("### Não encontrei nenhum resíduo")
+            st.markdown(
+                "Tente uma foto mais de perto, com o objeto inteiro aparecendo e boa luz. Se a foto tem um objeto só, "
+                "ligue **Só um objeto por foto**: assim o sistema olha a foto inteira."
+            )
+        return
+
+    with right:
+        # A lista de itens depende da sensibilidade e do modo: as correções ficam presas a essa combinação
+        detections = _items_with_corrections(image, detections, f"{data_key}-{det.conf}-{int(cfg['um_objeto'])}")
+    with left:
+        st.image(rgb(annotate(image, detections, list(range(1, len(detections) + 1)), compact=True)), width="stretch")
+        if not detections:
+            st.info("Você marcou todos os itens como \"não é resíduo\".")
+            return
+        counts = {name: sum(d.category == name for d in detections) for name in CATEGORIES}
+        present = [name for name, n in counts.items() if n]
+        if len(present) == 1:
+            bin_card(present[0], counts[present[0]])
+        else:
+            st.markdown(f"#### {len(detections)} itens, {len(present)} lixeiras diferentes")
+            chips(counts)
+            for name in present:
+                bin_card(name, counts[name])
+
+        action = choose_action(detections)
+        if cfg["comportas"] and first_time(f"actuate_{data_key}"):
+            get_controller().actuate(action.category)
+        if st.button("✅ Registrar no meu impacto", type="primary", key=f"reg_{data_key}", width="stretch"):
+            if first_time(f"db_{data_key}"):
+                db().add_detections(detections, source=source)
+            st.session_state[f"registered_{data_key}"] = True
+        if st.session_state.get(f"registered_{data_key}"):
+            st.success("Registrado! Os números aparecem em **Meu impacto**.")
+        if cfg["detalhes"]:
+            with st.expander("Detalhes técnicos"):
+                technical_table(detections)
