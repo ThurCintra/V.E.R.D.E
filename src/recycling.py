@@ -85,6 +85,24 @@ COCO_RULES: dict[str, CocoRule] = {
     "tie": CocoRule(ORGANICO, 50),
 }
 
+# Nome em português de cada classe (COCO e TrashNet), para mostrar a quem usa o sistema
+LABELS_PT = {
+    "bottle": "garrafa", "cup": "copo", "bowl": "pote", "wine glass": "taça", "vase": "vaso", "fork": "garfo",
+    "knife": "faca", "spoon": "colher", "scissors": "tesoura", "book": "livro", "toothbrush": "escova de dentes",
+    "umbrella": "guarda-chuva", "frisbee": "frisbee", "sports ball": "bola", "banana": "banana", "apple": "maçã",
+    "orange": "laranja", "broccoli": "brócolis", "carrot": "cenoura", "sandwich": "sanduíche",
+    "hot dog": "cachorro-quente", "pizza": "pizza", "donut": "rosquinha", "cake": "bolo", "potted plant": "planta",
+    "cell phone": "celular", "remote": "controle remoto", "mouse": "mouse", "keyboard": "teclado",
+    "laptop": "notebook", "teddy bear": "bicho de pelúcia", "tie": "gravata",
+    "cardboard": "papelão", "glass": "vidro", "metal": "metal", "paper": "papel", "plastic": "plástico",
+    "trash": "rejeito",
+}
+
+
+def label_pt(label: str) -> str:
+    return LABELS_PT.get(label, label)
+
+
 # Peso médio por categoria, para modelos customizados (cujas classes já são materiais).
 DEFAULT_WEIGHT_G: dict[str, float] = {
     PLASTICO.name: 25,

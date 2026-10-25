@@ -78,6 +78,27 @@ class CorrectionStore:
             )
         return path
 
+    def remove(self, path: str | Path) -> None:
+        """Desfaz uma correção (o usuário mudou de ideia): apaga o recorte e registra no log."""
+        path = Path(path)
+        path.unlink(missing_ok=True)
+        with open(self.directory / "log.jsonl", "a", encoding="utf-8") as log:
+            log.write(json.dumps({"removed": str(path.relative_to(self.directory))}) + "\n")
+
+    def _entries(self) -> list[dict]:
+        """As correções em vigor, na ordem (sem as desfeitas)."""
+        log = self.directory / "log.jsonl"
+        if not log.is_file():
+            return []
+        entries: dict[str, dict] = {}
+        for line in log.read_text(encoding="utf-8").splitlines():
+            entry = json.loads(line)
+            if "removed" in entry:
+                entries.pop(entry["removed"], None)
+            else:
+                entries[entry["file"]] = entry
+        return list(entries.values())
+
     def items(self) -> list[tuple[Path, str]]:
         """(recorte, classe do classificador) de todas as correções úteis para o treino."""
         if not self.directory.is_dir():
@@ -94,12 +115,9 @@ class CorrectionStore:
         """Quantas correções há por categoria, e quantas eram erros do sistema (e não confirmações)."""
         per_category = {name: 0 for name in OPTIONS}
         errors = 0
-        log = self.directory / "log.jsonl"
-        if log.is_file():
-            for line in log.read_text(encoding="utf-8").splitlines():
-                entry = json.loads(line)
-                per_category[entry["correct"]] = per_category.get(entry["correct"], 0) + 1
-                errors += entry["predicted"] != entry["correct"]
+        for entry in self._entries():
+            per_category[entry["correct"]] = per_category.get(entry["correct"], 0) + 1
+            errors += entry["predicted"] != entry["correct"]
         return {"total": sum(per_category.values()), "errors": errors, "per_category": per_category}
 
 
