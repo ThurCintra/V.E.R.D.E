@@ -1,0 +1,55 @@
+# docker compose up -d                    → API (8000) + dashboard (8501)
+# docker compose --profile mqtt up -d     → também sobe um broker MQTT (1883)
+x-app: &app
+  build: .
+  image: waste-detector
+  restart: unless-stopped
+  volumes:
+    - ./models:/app/models     # coloque aqui o waste_yolov8n.pt treinado
+    - ./storage:/app/storage   # histórico SQLite, compartilhado entre API e dashboard
+  environment:
+    HARDWARE_BACKEND: ${HARDWARE_BACKEND:-sim}   # sim | serial | mqtt
+    SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyUSB0}
+    SERIAL_BAUD: ${SERIAL_BAUD:-115200}
+    MQTT_HOST: ${MQTT_HOST:-mqtt}
+    MQTT_PORT: ${MQTT_PORT:-1883}
+    MQTT_TOPIC: ${MQTT_TOPIC:-lixeira/comando}
+    DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
+  # Arduino/ESP32 pela USB (HARDWARE_BACKEND=serial): descomente
+  # devices:
+  #   - /dev/ttyUSB0:/dev/ttyUSB0
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+  dashboard:
+    <<: *app
+    command: >
+      sh -c "python scripts/download_model.py &&
+             streamlit run app/dashboard.py --server.address 0.0.0.0 --server.port 8501 --server.headless true"
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    # Câmera do servidor na aba "Ao Vivo": descomente
+    # devices:
+    #   - /dev/video0:/dev/video0
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    profiles: ["mqtt"]
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
