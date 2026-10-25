@@ -40,7 +40,21 @@ firmware/lixeira/        sketch Arduino/ESP32 das comportas
 scripts/                 download do modelo e das imagens de teste
 ```
 
-## Instalação local
+## Como rodar
+
+Dentro da pasta do projeto, um comando só. Na primeira vez ele cria o ambiente, instala as dependências
+(alguns minutos) e baixa o modelo; nas outras, abre direto.
+
+| Windows (PowerShell, cmd ou duplo clique) | Linux, Mac, Raspberry Pi | O que faz                       |
+| ----------------------------------------- | ------------------------ | ------------------------------- |
+| `.\iniciar`                               | `./iniciar.sh`           | abre o dashboard (`:8501`)      |
+| `.\iniciar api`                           | `./iniciar.sh api`       | sobe a API (`:8000/docs`)       |
+| `.\iniciar tudo`                          | `./iniciar.sh tudo`      | dashboard + API                 |
+| `.\iniciar testes`                        | `./iniciar.sh testes`    | roda os testes                  |
+
+No Windows, se o Python não estiver instalado, o `iniciar` instala o Python 3.12 pelo `winget`.
+
+## Instalação manual
 
 ```bash
 python -m venv .venv
