@@ -105,7 +105,27 @@ e o caso vai para revisão.
 `single_item` ligado (no dashboard, na API ou com `WASTE_SINGLE_ITEM=1`), se o detector não achar nada, a foto
 inteira passa pelo classificador. É o modo que mais acerta quando a captura é controlada.
 
-<!-- RESULTADOS -->
+### Resultados medidos
+
+Conjunto de teste do TrashNet: 379 fotos que nenhum modelo viu no treino, um objeto por foto
+(`python -m src.evaluate material` e `python -m src.evaluate system`):
+
+| O que foi medido                                   | Acerto   |
+| -------------------------------------------------- | -------- |
+| Sistema só com o COCO (antes)                      | 15,3%    |
+| Sistema com o classificador de material, modo lixeira | **93,7%** |
+| Classificador sozinho, nas 6 classes do TrashNet  | 93,9%    |
+| Classificador sozinho, nas 5 categorias da coleta | 95,2%    |
+
+Acerto por categoria no sistema: Vidro 97%, Papel 95%, Metal 94%, Plástico 89% e Orgânico/Rejeito 86%. As
+matrizes de confusão estão em `reports/`.
+
+**Limite conhecido:** essas fotos são de um objeto sobre fundo claro, como numa lixeira com câmera fixa. Em
+pilhas densas de lixo misturado, o detector do COCO acha só parte dos objetos, e o classificador erra mais (lata
+vermelha vista como plástico, garrafa verde de plástico vista como vidro). Para esse cenário, o caminho é treinar
+o detector com o TACO no Colab (abaixo) e, depois, com as suas próprias fotos.
+
+O classificador incluído é o `yolov8n-cls`, treinado em CPU por 40 épocas (cerca de 30 minutos).
 
 ### Dicas de captura (o que mais melhora o resultado de graça)
 

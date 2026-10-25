@@ -142,8 +142,8 @@ class Detector:
     ) -> list[Detection]:
         """Recebe caminho, bytes de arquivo ou array BGR (como o OpenCV lê) e devolve as detecções.
 
-        ``single_item``: a foto tem um resíduo só (lixeira com câmera fixa). Se o detector não achar nenhum, a
-        foto inteira passa pelo classificador de material.
+        ``single_item``: a foto tem um resíduo só (lixeira com câmera fixa). O classificador de material olha a
+        foto inteira e, se tiver certeza, decide a categoria do item; o detector só dá a posição.
         """
         image = load_image(image)
         result = self.model.predict(
@@ -160,10 +160,8 @@ class Detector:
 
         if self.material and self.is_coco:
             detections = self._refine(image, detections)
-        if single_item and self.material and not any(d.category for d in detections):
-            whole = self._whole_image(image)
-            if whole:
-                detections.append(whole)
+        if single_item and self.material:
+            detections = self._single_item(image, detections)
         return detections
 
     def _refine(self, image: np.ndarray, detections: list[Detection]) -> list[Detection]:
@@ -178,15 +176,31 @@ class Detector:
             detections[i] = det
         return detections
 
-    def _whole_image(self, image: np.ndarray) -> Detection | None:
+    def _single_item(self, image: np.ndarray, detections: list[Detection]) -> list[Detection]:
+        """Um item por foto: vira uma detecção só, com a categoria que o classificador vê na foto inteira.
+
+        No teste do TrashNet, deixar o detector decidir errava 16% das fotos: o COCO "vê" papelão como celular e
+        coisas alaranjadas como banana, e esses rótulos não passam pelo classificador. Se o classificador não
+        tiver certeza, fica o que o detector achou.
+        """
         (pred,) = self.material.classify([image])
         if pred.confidence < self.material_conf:
-            return None
-        h, w = image.shape[:2]
-        return Detection(
-            pred.label, pred.confidence, (0.0, 0.0, float(w), float(h)), pred.category,
-            DEFAULT_WEIGHT_G[pred.category], pred.label, pred.confidence,
-        )
+            return detections
+        waste = [d for d in detections if d.category]
+        others = [d for d in detections if not d.category]
+        if waste:
+            best = max(waste, key=lambda d: d.confidence)
+            weight = best.weight_g if best.category == pred.category else DEFAULT_WEIGHT_G[pred.category]
+            item = replace(
+                best, category=pred.category, weight_g=weight, material=pred.label, material_confidence=pred.confidence
+            )
+        else:
+            h, w = image.shape[:2]
+            item = Detection(
+                pred.label, pred.confidence, (0.0, 0.0, float(w), float(h)), pred.category,
+                DEFAULT_WEIGHT_G[pred.category], pred.label, pred.confidence,
+            )
+        return [item] + others
 
 
 def load_image(image: str | Path | bytes | np.ndarray) -> np.ndarray:

@@ -65,6 +65,17 @@ def test_modo_um_item_classifica_a_foto_inteira(det_with):
     assert whole.box == (0.0, 0.0, 640.0, 480.0)
 
 
+def test_modo_um_item_a_foto_inteira_decide_o_material(det_with, coco_samples):
+    # Na foto da mesa o COCO vê garrafas, bananas e bolo; no modo lixeira o item é um só, e o classificador
+    # (que olhou a foto inteira) decide a categoria. O detector dá a posição do objeto mais confiante.
+    plain = det_with(FakeClassifier("cardboard", "Papel", 0.9))
+    many = plain.detect(coco_samples["garrafas_banana"], waste_only=True)
+    (item,) = plain.detect(coco_samples["garrafas_banana"], waste_only=True, single_item=True)
+    best = max(many, key=lambda d: d.confidence)
+    assert item.category == "Papel" and item.material == "cardboard"
+    assert item.box == best.box and item.label == best.label
+
+
 def test_modo_um_item_nao_inventa_quando_o_classificador_duvida(det_with):
     detector = det_with(FakeClassifier("cardboard", "Papel", 0.3))
     assert detector.detect(PLAIN, waste_only=True, single_item=True) == []
