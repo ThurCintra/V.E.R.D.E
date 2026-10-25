@@ -45,16 +45,19 @@ if not exist data\esteira.mp4 "%VENV_PY%" scripts\prepare_data.py
 
 if /i "%~1"=="api" goto api
 if /i "%~1"=="testes" goto testes
+if /i "%~1"=="tudo" call :liberar_porta 8000 uvicorn
 if /i "%~1"=="tudo" start "V.E.R.D.E. - API" "%VENV_PY%" -m uvicorn src.api:app --port 8000
+call :liberar_porta 8501 streamlit
 
 echo.
 echo [V.E.R.D.E.] Dashboard em http://localhost:8501  -  para parar, feche esta janela ou aperte Ctrl+C
 start "" /min cmd /c "timeout /t 6 /nobreak >nul && start http://localhost:8501"
-"%VENV_PY%" -m streamlit run app\dashboard.py --server.headless true --browser.gatherUsageStats false
+"%VENV_PY%" -m streamlit run app\dashboard.py --server.port 8501 --server.headless true --browser.gatherUsageStats false
 goto fim
 
 :api
 echo.
+call :liberar_porta 8000 uvicorn
 echo [V.E.R.D.E.] API em http://localhost:8000/docs  -  para parar, feche esta janela ou aperte Ctrl+C
 "%VENV_PY%" -m uvicorn src.api:app --port 8000
 goto fim
@@ -71,3 +74,10 @@ exit /b 1
 
 :fim
 endlocal
+exit /b 0
+
+:liberar_porta
+rem Encerra uma copia antiga do V.E.R.D.E. (streamlit ou uvicorn) que ainda esteja usando a porta %1.
+rem Sem isso, o novo dashboard sobe em outra porta e o navegador abre o antigo, com o codigo velho.
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort %1 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess); if ($p -and $p.CommandLine -like '*%2*') { Write-Host '[V.E.R.D.E.] Encerrando a copia antiga na porta %1'; Stop-Process -Id $p.ProcessId -Force } }"
+exit /b 0

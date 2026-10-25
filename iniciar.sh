@@ -39,4 +39,4 @@ case "${1:-}" in
     trap 'kill $! 2>/dev/null' EXIT ;;
 esac
 echo "[V.E.R.D.E.] Dashboard em http://localhost:8501 (Ctrl+C para parar)"
-"$PY" -m streamlit run app/dashboard.py --server.headless true --browser.gatherUsageStats false
+"$PY" -m streamlit run app/dashboard.py --server.port 8501 --server.headless true --browser.gatherUsageStats false
