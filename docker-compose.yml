@@ -5,7 +5,7 @@ x-app: &app
   image: verde
   restart: unless-stopped
   volumes:
-    - ./models:/app/models     # coloque aqui o waste_yolov8n.pt treinado
+    - ./models:/app/models     # coloque aqui o waste_detector.pt treinado
     - ./storage:/app/storage   # histórico SQLite, compartilhado entre API e dashboard
   environment:
     HARDWARE_BACKEND: ${HARDWARE_BACKEND:-sim}   # sim | serial | mqtt
@@ -15,6 +15,12 @@ x-app: &app
     MQTT_PORT: ${MQTT_PORT:-1883}
     MQTT_TOPIC: ${MQTT_TOPIC:-lixeira/comando}
     DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
+    WASTE_MODEL: ${WASTE_MODEL:-}                  # vazio = waste_detector.pt se existir, senão yolov8n.pt
+    WASTE_IMGSZ: ${WASTE_IMGSZ:-640}               # 960 ajuda com itens pequenos (mais lento)
+    WASTE_MATERIAL_MODEL: ${WASTE_MATERIAL_MODEL:-auto}   # off desliga a 2ª etapa
+    WASTE_MATERIAL_CONF: ${WASTE_MATERIAL_CONF:-0.6}
+    WASTE_SINGLE_ITEM: ${WASTE_SINGLE_ITEM:-0}     # 1 = lixeira que fotografa um item por vez
+    WASTE_REVIEW: ${WASTE_REVIEW:-1}               # guarda casos duvidosos em storage/review
   # Arduino/ESP32 pela USB (HARDWARE_BACKEND=serial): descomente
   # devices:
   #   - /dev/ttyUSB0:/dev/ttyUSB0

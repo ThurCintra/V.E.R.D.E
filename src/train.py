@@ -9,9 +9,9 @@ Fontes suportadas:
   roboflow`` e da chave em ``ROBOFLOW_API_KEY``). As classes do dataset são mantidas; o detector as converte
   para categoria pelo nome.
 - **Um data.yaml seu** (exportado do Ultralytics HUB, CVAT, Label Studio…).
-
-TrashNet é um dataset de *classificação* (uma foto por objeto, sem caixas), então não serve direto para
-detecção; use-o com ``yolo classify`` ou rotule caixas nele pelo Roboflow.
+- **TrashNet** (github.com/garythung/trashnet, MIT): 2.527 fotos de um objeto cada, sem caixas. Treina o
+  *classificador de material* (``models/material_cls.pt``), a segunda etapa do detector: ele olha o recorte de
+  cada objeto e decide se é plástico, papel, metal, vidro ou rejeito. Roda bem em CPU.
 
 Exemplos::
 
@@ -19,8 +19,10 @@ Exemplos::
     python -m src.train coco-json --annotations taco/annotations.json --images taco/ --epochs 50
     python -m src.train roboflow --workspace minha-org --project lixo --version 3
     python -m src.train yaml --data datasets/meu/data.yaml
+    python -m src.train trashnet --epochs 30          # classificador de material
 
-Ao terminar, o melhor peso é copiado para ``models/waste_yolov8n.pt`` e o detector passa a usá-lo sozinho.
+Ao terminar, o melhor peso é copiado para ``models/waste_detector.pt`` (ou ``models/material_cls.pt``) e o
+detector passa a usá-lo sozinho.
 """
 
 from __future__ import annotations
@@ -36,12 +38,13 @@ from pathlib import Path
 
 import yaml
 
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, ROOT
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, MATERIAL_MODEL, MODELS_DIR, ROOT
 from src.recycling import CATEGORIES, category_from_name
 
 DATASETS_DIR = ROOT / "datasets"
 CATEGORY_NAMES = list(CATEGORIES)  # ordem fixa das classes do modelo treinado
 TACO_ANNOTATIONS_URL = "https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json"
+TRASHNET_URL = "https://github.com/garythung/trashnet/raw/master/data/dataset-resized.zip"
 
 
 def convert_coco_to_yolo(
@@ -50,8 +53,16 @@ def convert_coco_to_yolo(
     out_dir: str | Path,
     val_fraction: float = 0.2,
     seed: int = 0,
+    max_size: int = 1280,
 ) -> Path:
-    """Converte um dataset em formato COCO (como o TACO) para YOLO, com as 5 categorias. Devolve o data.yaml."""
+    """Converte um dataset em formato COCO (como o TACO) para YOLO, com as 5 categorias. Devolve o data.yaml.
+
+    As fotos são regravadas com no máximo ``max_size`` px no lado maior (as do TACO chegam a 4000 px, o que deixa
+    o treino lento sem ganho a 640 px) e já na orientação do EXIF, que é a das anotações. Fotos cujo tamanho não
+    bate com o das anotações são puladas: dariam caixas no lugar errado.
+    """
+    import cv2
+
     annotations_json, images_dir, out_dir = Path(annotations_json), Path(images_dir), Path(out_dir)
     coco = json.loads(annotations_json.read_text(encoding="utf-8"))
 
@@ -76,15 +87,29 @@ def convert_coco_to_yolo(
     n_val = max(1, round(len(ids) * val_fraction)) if len(ids) > 1 else 0
     splits = {"val": ids[:n_val], "train": ids[n_val:]}
 
+    written = {split: 0 for split in splits}
+    skipped = 0
     for split, split_ids in splits.items():
         (out_dir / "images" / split).mkdir(parents=True, exist_ok=True)
         (out_dir / "labels" / split).mkdir(parents=True, exist_ok=True)
         for image_id in split_ids:
-            src = images_dir / images[image_id]["file_name"]
+            info = images[image_id]
+            pixels = cv2.imread(str(images_dir / info["file_name"]))  # aplica a rotação do EXIF
+            if pixels is None or pixels.shape[:2] != (info["height"], info["width"]):
+                skipped += 1
+                continue
+            scale = max_size / max(pixels.shape[:2])
+            if scale < 1:
+                pixels = cv2.resize(pixels, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             # TACO guarda as fotos em subpastas (batch_1/000001.jpg): o nome achatado evita colisão
-            stem = images[image_id]["file_name"].replace("/", "_").rsplit(".", 1)[0]
-            shutil.copyfile(src, out_dir / "images" / split / f"{stem}{src.suffix.lower()}")
+            stem = info["file_name"].replace("/", "_").rsplit(".", 1)[0]
+            cv2.imwrite(str(out_dir / "images" / split / f"{stem}.jpg"), pixels, [cv2.IMWRITE_JPEG_QUALITY, 92])
             (out_dir / "labels" / split / f"{stem}.txt").write_text("\n".join(boxes_by_image[image_id]) + "\n")
+            written[split] += 1
+    if skipped:
+        print(f"{skipped} foto(s) puladas: ilegíveis ou com tamanho diferente do das anotações")
+    if not written["train"]:
+        raise ValueError("Nenhuma foto válida para treino")
 
     data_yaml = out_dir / "data.yaml"
     data_yaml.write_text(
@@ -92,7 +117,7 @@ def convert_coco_to_yolo(
             {
                 "path": str(out_dir.resolve()),
                 "train": "images/train",
-                "val": "images/val" if splits["val"] else "images/train",
+                "val": "images/val" if written["val"] else "images/train",
                 "names": dict(enumerate(CATEGORY_NAMES)),
             },
             allow_unicode=True,
@@ -146,6 +171,87 @@ def download_roboflow(workspace: str, project: str, version: int, api_key: str |
     return Path(dataset.location) / "data.yaml"
 
 
+def prepare_trashnet(
+    out_dir: str | Path = DATASETS_DIR / "trashnet",
+    zip_path: str | Path | None = None,
+    val_fraction: float = 0.15,
+    test_fraction: float = 0.15,
+    seed: int = 0,
+) -> Path:
+    """Baixa (ou usa ``zip_path``) o TrashNet e separa treino/validação/teste por classe, no formato de pastas
+    do ``yolo classify``. Devolve a pasta do dataset. Não refaz o que já existe."""
+    import zipfile
+
+    out_dir = Path(out_dir)
+    if (out_dir / "test").is_dir():
+        return out_dir
+    if zip_path is None:
+        zip_path = DATASETS_DIR / "trashnet.zip"
+        if not zip_path.is_file():
+            zip_path.parent.mkdir(parents=True, exist_ok=True)
+            urllib.request.urlretrieve(TRASHNET_URL, zip_path)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        by_class: dict[str, list[str]] = {}
+        for name in archive.namelist():
+            parts = name.split("/")
+            if len(parts) == 3 and parts[2].lower().endswith(".jpg") and not parts[2].startswith("."):
+                by_class.setdefault(parts[1], []).append(name)
+
+        rng = random.Random(seed)
+        for cls, names in sorted(by_class.items()):
+            names = sorted(names)
+            rng.shuffle(names)
+            n_test, n_val = round(len(names) * test_fraction), round(len(names) * val_fraction)
+            splits = {"test": names[:n_test], "val": names[n_test : n_test + n_val], "train": names[n_test + n_val :]}
+            for split, members in splits.items():
+                dest = out_dir / split / cls
+                dest.mkdir(parents=True, exist_ok=True)
+                for member in members:
+                    (dest / Path(member).name).write_bytes(archive.read(member))
+    return out_dir
+
+
+def train_classifier(
+    data_dir: str | Path,
+    base_model: str | Path = MODELS_DIR / "yolov8n-cls.pt",
+    epochs: int = 30,
+    imgsz: int = 224,
+    batch: int = 32,
+    device: str | None = None,
+    project_dir: str | Path = ROOT / "runs",
+    output: str | Path = MATERIAL_MODEL,
+    name: str = "material",
+    **overrides,
+) -> Path:
+    """Fine-tuning do classificador de material. Copia o melhor peso para ``output`` e devolve esse caminho."""
+    from ultralytics import YOLO
+
+    model = YOLO(str(base_model))
+    model.train(
+        data=str(data_dir),
+        epochs=epochs,
+        imgsz=imgsz,
+        batch=batch,
+        device=device,
+        project=str(Path(project_dir).resolve()),
+        name=name,
+        exist_ok=True,
+        **overrides,
+    )
+    return _copy_best(model, output)
+
+
+def _copy_best(model, output: str | Path) -> Path:
+    best = Path(model.trainer.best)
+    if not best.is_file():
+        best = Path(model.trainer.last)
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(best, output)
+    return output
+
+
 def train(
     data_yaml: str | Path,
     base_model: str | Path = DEFAULT_MODEL,
@@ -172,13 +278,7 @@ def train(
         exist_ok=True,
         **overrides,
     )
-    best = Path(model.trainer.best)
-    if not best.is_file():
-        best = Path(model.trainer.last)
-    output = Path(output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(best, output)
-    return output
+    return _copy_best(model, output)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -196,15 +296,26 @@ def main(argv: list[str] | None = None) -> None:
     rf.add_argument("--api-key")
     own = sub.add_parser("yaml", help="treina num data.yaml já pronto")
     own.add_argument("--data", required=True)
+    trash = sub.add_parser("trashnet", help="treina o classificador de material com o TrashNet")
+    trash.add_argument("--zip", help="dataset-resized.zip já baixado")
 
-    for p in sub.choices.values():
-        p.add_argument("--epochs", type=int, default=50)
-        p.add_argument("--imgsz", type=int, default=640)
-        p.add_argument("--batch", type=int, default=16)
+    for name, p in sub.choices.items():
+        classify = name == "trashnet"
+        p.add_argument("--epochs", type=int, default=30 if classify else 50)
+        p.add_argument("--imgsz", type=int, default=224 if classify else 640)
+        p.add_argument("--batch", type=int, default=32 if classify else 16)
         p.add_argument("--device", help="cpu, 0 (GPU), mps…")
-        p.add_argument("--base", default=str(DEFAULT_MODEL), help="peso inicial")
+        p.add_argument(
+            "--base", default=str(MODELS_DIR / "yolov8n-cls.pt" if classify else DEFAULT_MODEL), help="peso inicial"
+        )
+        p.add_argument("--runs-dir", default=str(ROOT / "runs"), help="onde salvar o treino (ex.: pasta do Drive)")
 
     args = parser.parse_args(argv)
+    if args.source == "trashnet":
+        data_dir = prepare_trashnet(zip_path=args.zip)
+        out = train_classifier(data_dir, args.base, args.epochs, args.imgsz, args.batch, args.device, args.runs_dir)
+        print(f"Classificador de material salvo em {out}")
+        return
     if args.source == "taco":
         annotations, images = download_taco()
         data = convert_coco_to_yolo(annotations, images, DATASETS_DIR / "taco")
@@ -215,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         data = Path(args.data)
 
-    out = train(data, args.base, args.epochs, args.imgsz, args.batch, args.device)
+    out = train(data, args.base, args.epochs, args.imgsz, args.batch, args.device, args.runs_dir)
     print(f"Modelo treinado salvo em {out}")
 
 
