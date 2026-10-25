@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import tempfile
+from dataclasses import replace
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -28,6 +30,9 @@ from src.pipeline import WastePipeline  # noqa: E402
 from src.recycling import CATEGORIES  # noqa: E402
 from src.report import to_csv, to_pdf, totals_from_records  # noqa: E402
 from src.review import ReviewCollector  # noqa: E402
+from src.corrections import MIN_CORRECTIONS, NOT_WASTE, OPTIONS, CorrectionStore, previous_model_path, restore_previous, retrain  # noqa: E402
+from src.material import crop  # noqa: E402
+from src.recycling import DEFAULT_WEIGHT_G  # noqa: E402
 
 TZ = ZoneInfo(os.environ.get("DISPLAY_TZ", "America/Sao_Paulo"))
 COLORS = {name: c.hex for name, c in CATEGORIES.items()}
@@ -57,6 +62,66 @@ def get_controller() -> HardwareController:
 
 def rgb(image_bgr):
     return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+
+def first_time(key: str) -> bool:
+    """True só na primeira vez nesta sessão. O Streamlit reexecuta a página a cada clique: sem isso, a mesma
+    foto seria registrada no histórico (e a comporta acionada) de novo a cada botão apertado."""
+    done = st.session_state.setdefault("_feito", set())
+    if key in done:
+        return False
+    done.add(key)
+    return True
+
+
+def corrected(image, detections, key: str):
+    """Mostra cada objeto com um seletor para corrigir a categoria e devolve as detecções já corrigidas.
+
+    Cada correção (ou confirmação de acerto) guarda o recorte em storage/corrections para o re-treino.
+    """
+    if not detections:
+        return detections
+    fixes = st.session_state.setdefault(f"fix_{key}", {})
+    store = CorrectionStore(paths.CORRECTIONS_DIR)
+    with st.expander("O sistema errou? Corrija aqui (isso ensina o modelo)", expanded=True):
+        for i, det in enumerate(detections):
+            thumb, info, choice, button = st.columns([1, 2, 2, 1.2], vertical_alignment="center")
+            thumb.image(rgb(crop(image, det.box)), width=70)
+            info.markdown(f"**#{i + 1}** {det.label} · {det.category} · {det.confidence:.0%}")
+            current = fixes.get(i, det.category)
+            picked = choice.selectbox(
+                f"Categoria certa do #{i + 1}", OPTIONS, index=OPTIONS.index(current),
+                key=f"sel_{key}_{i}", label_visibility="collapsed",
+            )
+            if i in fixes:
+                button.markdown("✅ salvo")
+            elif button.button("Salvar" if picked != det.category else "Certo", key=f"btn_{key}_{i}"):
+                store.add(image, det.box, det.category, picked, det.label, "dashboard")
+                fixes[i] = picked
+                st.rerun()
+        pending = [i for i in range(len(detections)) if i not in fixes]
+        if pending and st.button(
+            f"Salvar todas ({len(pending)}) · confira antes", key=f"all_{key}",
+            help="Salva as categorias escolhidas acima. As que você não mudou contam como CERTAS: se uma estiver errada e você não corrigir, o modelo aprende o erro.",
+        ):
+            for i in pending:
+                picked = st.session_state.get(f"sel_{key}_{i}", detections[i].category)
+                store.add(image, detections[i].box, detections[i].category, picked, detections[i].label, "dashboard")
+                fixes[i] = picked
+            st.rerun()
+    result = []
+    for i, det in enumerate(detections):
+        fix = fixes.get(i)
+        if fix == NOT_WASTE:
+            continue
+        if fix and fix != det.category:
+            det = replace(det, category=fix, weight_g=DEFAULT_WEIGHT_G[fix])
+        result.append(det)
+    return result
+
+
+def image_key(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()[:12]
 
 
 def detections_table(detections) -> pd.DataFrame:
@@ -113,8 +178,8 @@ with st.sidebar:
     for name, cat in CATEGORIES.items():
         st.markdown(f"<span style='color:{cat.hex}'>■</span> {name} · comando `{cat.command}`", unsafe_allow_html=True)
 
-live_tab, analysis_tab, report_tab = st.tabs(
-    ["Monitoramento ao Vivo", "Análise de Imagem/Vídeo", "Relatório de Impacto Ambiental"]
+live_tab, analysis_tab, report_tab, train_tab = st.tabs(
+    ["Monitoramento ao Vivo", "Análise de Imagem/Vídeo", "Relatório de Impacto Ambiental", "Correções e Treino"]
 )
 
 # ---------------------------------------------------------------- ao vivo
@@ -126,17 +191,21 @@ with live_tab:
     if source == "Câmera do navegador":
         shot = st.camera_input("Aponte o resíduo para a câmera")
         if shot is not None:
+            key = image_key(shot.getvalue())
             image = load_image(shot.getvalue())
             detections = detector.detect(image, waste_only=True, single_item=single_item)
-            st.image(rgb(annotate(image, detections)), width="stretch")
-            if review:
+            if review and first_time(f"review_{key}"):
                 review.maybe_save(image, detections, "ao-vivo", single_item)
+            detections = corrected(image, detections, key)
+            st.image(rgb(annotate(image, detections, list(range(1, len(detections) + 1)))), width="stretch")
             if detections:
-                db.add_detections(detections, source="ao-vivo")
                 action = choose_action(detections)
-                sent = controller.actuate(action.category) if actuate else False
-                st.success(f"Destino: **{action.bin}** · comando `{action.command}`" + (" (enviado)" if sent else ""))
+                if actuate and first_time(f"actuate_{key}"):
+                    controller.actuate(action.category)
+                st.success(f"Destino: **{action.bin}** · comando `{action.command}`")
                 st.dataframe(detections_table(detections), hide_index=True)
+                if st.button("Registrar no histórico", key=f"reg_{key}") and first_time(f"db_{key}"):
+                    st.toast(f"{db.add_detections(detections, source='ao-vivo')} item(ns) registrado(s)")
             else:
                 st.info("Nenhum resíduo reconhecido.")
     else:
@@ -163,18 +232,20 @@ with analysis_tab:
         "Imagem ou vídeo", type=["jpg", "jpeg", "png", "webp", "bmp", "mp4", "avi", "mov", "mkv"]
     )
     if upload is not None and upload.type.startswith("image"):
+        key = image_key(upload.getvalue())
         image = load_image(upload.getvalue())
         detections = detector.detect(image, waste_only=True, single_item=single_item)
         left, right = st.columns([3, 2])
-        left.image(rgb(annotate(image, detections)), width="stretch")
         with right:
+            detections = corrected(image, detections, key)
             st.subheader(f"{len(detections)} resíduo(s)")
             if detections:
                 st.dataframe(detections_table(detections), hide_index=True)
                 action = choose_action(detections)
                 st.success(f"Destino: **{action.bin}** · comando `{action.command}`")
-                if st.button("Registrar no histórico"):
+                if st.button("Registrar no histórico", key=f"reg_{key}") and first_time(f"db_{key}"):
                     st.toast(f"{db.add_detections(detections, source='imagem')} item(ns) registrado(s)")
+        left.image(rgb(annotate(image, detections, list(range(1, len(detections) + 1)))), width="stretch")
     elif upload is not None:
         every_n = st.slider("Processar 1 a cada N frames", 1, 10, 3, key="video_every_n")
         save = st.checkbox("Registrar itens no histórico", value=True)
@@ -262,3 +333,59 @@ with report_tab:
                        disabled=not records)
     c2.download_button("Exportar PDF", to_pdf(records, label), f"relatorio_{start_day}_{end_day}.pdf",
                        "application/pdf", disabled=not records)
+
+# ---------------------------------------------------------------- correções e treino
+with train_tab:
+    store = CorrectionStore(paths.CORRECTIONS_DIR)
+    summary = store.summary()
+    st.subheader("Ensine o sistema com as suas correções")
+    st.markdown(
+        "Nas abas de imagem e câmera, use **O sistema errou? Corrija aqui** em cada objeto. Cada correção (e cada "
+        "**Certo**) vira um exemplo de treino. Com pelo menos "
+        f"{MIN_CORRECTIONS} correções, treine aqui: o classificador é ajustado com elas e só é trocado se o novo "
+        "não ficar pior."
+    )
+    m = st.columns(3)
+    m[0].metric("Correções guardadas", summary["total"])
+    m[1].metric("Erros corrigidos", summary["errors"])
+    m[2].metric("Acertos confirmados", summary["total"] - summary["errors"])
+    st.dataframe(
+        pd.DataFrame([{"Categoria": k, "Exemplos": v} for k, v in summary["per_category"].items()]), hide_index=True
+    )
+    st.caption(f"Classificador em uso: `{paths.active_material_model()}`")
+
+    usable = len(store.items())
+    epochs = st.slider("Épocas de treino", 3, 20, 8, help="Mais épocas aprendem mais, mas demoram mais.")
+    st.caption(
+        f"No seu PC leva alguns minutos (cerca de 1 minuto por época numa CPU comum). Na primeira vez baixa o "
+        f"TrashNet (42 MB). Exemplos utilizáveis: {usable}."
+    )
+    if st.button("Treinar com minhas correções", type="primary", disabled=usable < MIN_CORRECTIONS):
+        bar = st.progress(0.0, "Preparando os dados...")
+        try:
+            result = retrain(
+                store, epochs=epochs,
+                on_epoch=lambda e, total: bar.progress(e / total, f"Treinando: época {e} de {total}"),
+            )
+        except Exception as err:  # mostra o erro em vez de derrubar a página
+            st.error(f"O treino falhou: {err}")
+        else:
+            bar.progress(1.0, "Pronto")
+            (st.success if result.accepted else st.warning)(result.message)
+            cols = st.columns(2)
+            cols[0].metric(
+                "Acerto no teste do TrashNet", f"{result.new_test_accuracy:.1%}",
+                f"{(result.new_test_accuracy - result.old_test_accuracy) * 100:+.1f} pontos",
+            )
+            if result.new_corrections_accuracy is not None:
+                label = "Acerto nas correções separadas" if result.corrections_holdout else "Acerto nas suas correções"
+                cols[1].metric(
+                    label, f"{result.new_corrections_accuracy:.1%}",
+                    f"{(result.new_corrections_accuracy - result.old_corrections_accuracy) * 100:+.1f} pontos",
+                )
+            if result.accepted:
+                get_detector.clear()  # o próximo uso carrega o modelo novo
+    if previous_model_path().is_file() and st.button("Voltar ao modelo anterior"):
+        restore_previous()
+        get_detector.clear()
+        st.success("Modelo anterior restaurado.")

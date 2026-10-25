@@ -27,6 +27,7 @@ src/
   train.py               fine-tuning (TACO, TrashNet, Roboflow ou data.yaml próprio)
   evaluate.py            acurácia, mAP e matrizes de confusão (relatórios em reports/)
   review.py              guarda os casos duvidosos, já rotulados, para revisão humana
+  corrections.py         correções do usuário e re-treino do classificador com elas
   weights.py             download dos pesos oficiais do YOLOv8
   database.py            histórico em SQLite
   impact.py              CO2 evitado, energia economizada e água poupada
@@ -150,6 +151,28 @@ mais.
 | `WASTE_SINGLE_ITEM`    | 0      | 1 = modo lixeira (1 item por foto)                                      |
 | `WASTE_REVIEW`         | 1      | 0 = não guarda casos duvidosos                                          |
 | `WASTE_REVIEW_CONF`    | 0.5    | detecções abaixo dessa confiança vão para revisão                       |
+
+## Corrigindo os erros e re-treinando (botão no dashboard)
+
+1. Nas abas **Análise de Imagem/Vídeo** e **Monitoramento ao Vivo** (câmera do navegador), abra **O sistema errou?
+   Corrija aqui**. Para cada objeto, escolha a categoria certa (ou **Não é resíduo**) e clique em **Salvar**, ou em
+   **Certo** se ele acertou. **Salvar todas** grava tudo de uma vez: confira antes, porque o que você não mudar conta
+   como certo.
+2. Na aba **Correções e Treino**, com pelo menos 5 exemplos, clique em **Treinar com minhas correções**.
+
+O treino ajusta o classificador em uso com o TrashNet + as suas correções (cada uma conta 5 vezes) e congela as
+camadas de base da rede, para ele aprender sem esquecer o resto. Leva cerca de 1 minuto por época numa CPU comum
+(o padrão são 8). Depois, o modelo novo é comparado com o atual e **só é trocado se não piorar**: até 2 pontos de
+queda no teste do TrashNet e nenhuma queda nas correções separadas para validação (1 em cada 5, a partir de 10
+correções). O modelo anterior fica guardado (botão **Voltar ao modelo anterior**).
+
+Os recortes ficam em `storage/corrections/` e o modelo re-treinado em `storage/material_cls.pt`, fora do Git:
+o `git pull` nunca apaga o que você ensinou.
+
+Exemplo real, com 14 correções da foto de uma pilha de lixo (latas, garrafas, tampas), 5 épocas, 2 minutos:
+o acerto nesses objetos foi de 6/14 para 14/14, as 3 correções separadas para validação foram de 67% para 100%, e o
+teste do TrashNet subiu de 95,2% para 95,8%. Sem congelar as camadas, o mesmo treino derrubava o teste do TrashNet
+para 92,9% e era recusado.
 
 ## Melhorando com os seus próprios dados
 

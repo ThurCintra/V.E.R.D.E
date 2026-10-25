@@ -222,12 +222,18 @@ def train_classifier(
     project_dir: str | Path = ROOT / "runs",
     output: str | Path = MATERIAL_MODEL,
     name: str = "material",
+    on_epoch=None,
     **overrides,
 ) -> Path:
-    """Fine-tuning do classificador de material. Copia o melhor peso para ``output`` e devolve esse caminho."""
+    """Fine-tuning do classificador de material. Copia o melhor peso para ``output`` e devolve esse caminho.
+
+    ``on_epoch(época, total)`` é chamado ao fim de cada época (barra de progresso do dashboard).
+    """
     from ultralytics import YOLO
 
     model = YOLO(str(base_model))
+    if on_epoch:
+        model.add_callback("on_train_epoch_end", lambda trainer: on_epoch(trainer.epoch + 1, trainer.epochs))
     model.train(
         data=str(data_dir),
         epochs=epochs,
