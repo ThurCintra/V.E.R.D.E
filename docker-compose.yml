@@ -15,7 +15,7 @@ x-app: &app
     MQTT_PORT: ${MQTT_PORT:-1883}
     MQTT_TOPIC: ${MQTT_TOPIC:-lixeira/comando}
     DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
-    WASTE_MODEL: ${WASTE_MODEL:-}                  # vazio = waste_detector.pt se existir, senão yolov8n.pt
+    WASTE_MODEL: ${WASTE_MODEL:-}                  # vazio = waste_detector.pt se existir, senão yolov8s.pt
     WASTE_IMGSZ: ${WASTE_IMGSZ:-640}               # 960 ajuda com itens pequenos (mais lento)
     WASTE_MATERIAL_MODEL: ${WASTE_MATERIAL_MODEL:-auto}   # off desliga a 2ª etapa
     WASTE_MATERIAL_CONF: ${WASTE_MATERIAL_CONF:-0.6}

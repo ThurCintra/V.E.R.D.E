@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MODELS_DIR = Path(os.environ.get("WASTE_MODELS_DIR", ROOT / "models"))
 DATA_DIR = ROOT / "data"
-DEFAULT_MODEL = MODELS_DIR / "yolov8n.pt"
+DEFAULT_MODEL = MODELS_DIR / "yolov8s.pt"  # o yolov8n (mais rápido) acha bem menos objetos em pilhas de lixo
 CUSTOM_MODEL = MODELS_DIR / "waste_detector.pt"  # detector de resíduos, gerado por src/train.py
 MATERIAL_MODEL = MODELS_DIR / "material_cls.pt"  # classificador de material (TrashNet), idem
 REVIEW_DIR = Path(os.environ.get("WASTE_REVIEW_DIR", ROOT / "storage" / "review"))  # casos duvidosos

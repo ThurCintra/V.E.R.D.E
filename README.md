@@ -60,7 +60,7 @@ No Windows, se o Python não estiver instalado, o `iniciar` instala o Python 3.1
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python scripts/download_model.py       # models/yolov8n.pt
+python scripts/download_model.py       # models/yolov8s.pt
 python scripts/prepare_data.py         # imagens e vídeo de teste em data/
 pytest
 ```
@@ -72,7 +72,7 @@ streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 
 ## Como a classificação funciona
 
-**Sem modelo treinado** (padrão), o YOLOv8n do COCO detecta objetos genéricos e `recycling.COCO_RULES`
+**Sem modelo treinado** (padrão), o YOLOv8s do COCO detecta objetos genéricos e `recycling.COCO_RULES`
 converte os que aparecem no lixo, cada um com um peso médio estimado:
 
 - Plástico: `bottle`, `cup`, `fork`, `knife`, `spoon`, `bowl`, `toothbrush`, `frisbee`, `sports ball`
@@ -121,7 +121,7 @@ mais.
 
 | Variável               | Padrão | Efeito                                                                  |
 | ---------------------- | ------ | ----------------------------------------------------------------------- |
-| `WASTE_MODEL`          | auto   | detector: `waste_detector.pt` se existir, senão `yolov8n.pt`; `yolov8s.pt` é mais preciso e é baixado sozinho |
+| `WASTE_MODEL`          | auto   | detector: `waste_detector.pt` se existir, senão `yolov8s.pt`; `yolov8n.pt` é mais rápido, mas acha bem menos objetos |
 | `WASTE_IMGSZ`          | 640    | resolução da detecção; 960 ajuda com itens pequenos (mais lento)        |
 | `DETECTOR_CONF`        | 0.25   | confiança mínima de uma detecção                                        |
 | `WASTE_TTA`            | 0      | 1 = inferência com aumento de dados (vira a imagem e muda a escala: mais lenta) |

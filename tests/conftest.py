@@ -12,7 +12,10 @@ from scripts.prepare_data import copy_sample, fetch_coco_samples, make_conveyor_
 
 @pytest.fixture(scope="session")
 def model_path():
-    return download()
+    """Os testes usam o yolov8n: bem mais rápido que o padrão (yolov8s) e com resultados estáveis."""
+    from src.paths import MODELS_DIR
+
+    return download(MODELS_DIR / "yolov8n.pt")
 
 
 @pytest.fixture(scope="session")
