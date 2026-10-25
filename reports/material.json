@@ -1,0 +1,200 @@
+{
+  "model": "material_cls.pt",
+  "classes": {
+    "accuracy": 0.9393,
+    "macro_f1": 0.9289,
+    "n": 379,
+    "per_class": {
+      "cardboard": {
+        "precision": 0.9661,
+        "recall": 0.95,
+        "f1": 0.958,
+        "support": 60
+      },
+      "glass": {
+        "precision": 0.9487,
+        "recall": 0.9867,
+        "f1": 0.9673,
+        "support": 75
+      },
+      "metal": {
+        "precision": 0.9375,
+        "recall": 0.9677,
+        "f1": 0.9524,
+        "support": 62
+      },
+      "paper": {
+        "precision": 0.9535,
+        "recall": 0.9213,
+        "f1": 0.9371,
+        "support": 89
+      },
+      "plastic": {
+        "precision": 0.9412,
+        "recall": 0.8889,
+        "f1": 0.9143,
+        "support": 72
+      },
+      "trash": {
+        "precision": 0.7917,
+        "recall": 0.9048,
+        "f1": 0.8444,
+        "support": 21
+      }
+    },
+    "labels": [
+      "cardboard",
+      "glass",
+      "metal",
+      "paper",
+      "plastic",
+      "trash"
+    ],
+    "predicted_labels": [
+      "cardboard",
+      "glass",
+      "metal",
+      "paper",
+      "plastic",
+      "trash"
+    ],
+    "confusion_matrix": [
+      [
+        57,
+        0,
+        0,
+        3,
+        0,
+        0
+      ],
+      [
+        0,
+        74,
+        0,
+        0,
+        1,
+        0
+      ],
+      [
+        0,
+        0,
+        60,
+        0,
+        2,
+        0
+      ],
+      [
+        2,
+        0,
+        3,
+        82,
+        0,
+        2
+      ],
+      [
+        0,
+        4,
+        1,
+        0,
+        64,
+        3
+      ],
+      [
+        0,
+        0,
+        0,
+        1,
+        1,
+        19
+      ]
+    ]
+  },
+  "categories": {
+    "accuracy": 0.9525,
+    "macro_f1": 0.9316,
+    "n": 379,
+    "per_class": {
+      "Plástico": {
+        "precision": 0.9412,
+        "recall": 0.8889,
+        "f1": 0.9143,
+        "support": 72
+      },
+      "Papel": {
+        "precision": 0.9931,
+        "recall": 0.9664,
+        "f1": 0.9796,
+        "support": 149
+      },
+      "Metal": {
+        "precision": 0.9375,
+        "recall": 0.9677,
+        "f1": 0.9524,
+        "support": 62
+      },
+      "Vidro": {
+        "precision": 0.9487,
+        "recall": 0.9867,
+        "f1": 0.9673,
+        "support": 75
+      },
+      "Orgânico/Rejeito": {
+        "precision": 0.7917,
+        "recall": 0.9048,
+        "f1": 0.8444,
+        "support": 21
+      }
+    },
+    "labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+    ],
+    "predicted_labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+    ],
+    "confusion_matrix": [
+      [
+        64,
+        0,
+        1,
+        4,
+        3
+      ],
+      [
+        0,
+        144,
+        3,
+        0,
+        2
+      ],
+      [
+        2,
+        0,
+        60,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        74,
+        0
+      ],
+      [
+        1,
+        1,
+        0,
+        0,
+        19
+      ]
+    ]
+  }
+}
