@@ -2,7 +2,7 @@
 # docker compose --profile mqtt up -d     → também sobe um broker MQTT (1883)
 x-app: &app
   build: .
-  image: waste-detector
+  image: verde
   restart: unless-stopped
   volumes:
     - ./models:/app/models     # coloque aqui o waste_yolov8n.pt treinado

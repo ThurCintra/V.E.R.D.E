@@ -1,4 +1,4 @@
-"""API REST para lixeiras inteligentes e esteiras.
+"""V.E.R.D.E.: API REST para lixeiras inteligentes e esteiras.
 
     uvicorn src.api:app --host 0.0.0.0 --port 8000
 
@@ -38,7 +38,7 @@ def create_app(
             app.state.db.close()
 
     app = FastAPI(
-        title="Detector de Resíduos Recicláveis",
+        title="V.E.R.D.E. - API",
         version="1.0.0",
         description="Classifica resíduos nas 5 categorias da coleta seletiva e aciona a comporta certa.",
         lifespan=lifespan,
