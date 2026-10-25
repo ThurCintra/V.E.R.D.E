@@ -27,6 +27,7 @@ from src.impact import FACTORS, compute_impact  # noqa: E402
 from src.pipeline import WastePipeline  # noqa: E402
 from src.recycling import CATEGORIES  # noqa: E402
 from src.report import to_csv, to_pdf, totals_from_records  # noqa: E402
+from src.review import ReviewCollector  # noqa: E402
 
 TZ = ZoneInfo(os.environ.get("DISPLAY_TZ", "America/Sao_Paulo"))
 COLORS = {name: c.hex for name, c in CATEGORIES.items()}
@@ -36,7 +37,12 @@ st.set_page_config(page_title="V.E.R.D.E.", page_icon="♻️", layout="wide")
 
 @st.cache_resource
 def get_detector() -> Detector:
-    return Detector()
+    return Detector.from_env()
+
+
+@st.cache_resource
+def get_review(path: str) -> ReviewCollector | None:
+    return ReviewCollector.from_env(path)
 
 
 @st.cache_resource
@@ -56,7 +62,13 @@ def rgb(image_bgr):
 def detections_table(detections) -> pd.DataFrame:
     return pd.DataFrame(
         [
-            {"Categoria": d.category or "-", "Classe": d.label, "Confiança": f"{d.confidence:.0%}", "Peso (g)": d.weight_g}
+            {
+                "Categoria": d.category or "-",
+                "Classe": d.label,
+                "Confiança": f"{d.confidence:.0%}",
+                "Material (2ª etapa)": f"{d.material} {d.material_confidence:.0%}" if d.material else "-",
+                "Peso (g)": d.weight_g,
+            }
             for d in detections
         ]
     )
@@ -80,10 +92,23 @@ with st.sidebar:
     detector.conf = conf
     db = get_db(str(paths.DB_PATH))
     controller = get_controller()
+    review = get_review(str(paths.REVIEW_DIR))
     actuate = st.toggle("Acionar comportas", value=False, help=f"Backend: {controller.backend.name}")
-    st.caption(f"Modelo: `{detector.model_path.name}` ({detector.mode})")
-    if detector.is_coco:
+    single_item = st.toggle(
+        "Modo lixeira (1 item por foto)",
+        value=os.environ.get("WASTE_SINGLE_ITEM", "0") == "1",
+        help="Se o detector não achar nada, a foto inteira passa pelo classificador de material.",
+    )
+    st.caption(f"Detector: `{detector.model_path.name}` ({detector.mode})")
+    if detector.material:
+        st.caption(f"Material (2ª etapa): `{detector.material.model_path.name}`")
+    if detector.is_coco and not detector.material:
         st.caption("Sem modelo treinado: usando o mapeamento COCO → coleta seletiva. Treine com `src/train.py`.")
+    if review:
+        n_review = review.count()
+        st.caption(f"Casos para revisar: **{n_review}**")
+        if n_review:
+            st.download_button("Baixar casos (YOLO)", review.export_zip(), "revisao.zip", "application/zip")
     st.markdown("**Cores (CONAMA 275/2001)**")
     for name, cat in CATEGORIES.items():
         st.markdown(f"<span style='color:{cat.hex}'>■</span> {name} · comando `{cat.command}`", unsafe_allow_html=True)
@@ -102,8 +127,10 @@ with live_tab:
         shot = st.camera_input("Aponte o resíduo para a câmera")
         if shot is not None:
             image = load_image(shot.getvalue())
-            detections = detector.detect(image, waste_only=True)
+            detections = detector.detect(image, waste_only=True, single_item=single_item)
             st.image(rgb(annotate(image, detections)), width="stretch")
+            if review:
+                review.maybe_save(image, detections, "ao-vivo", single_item)
             if detections:
                 db.add_detections(detections, source="ao-vivo")
                 action = choose_action(detections)
@@ -119,7 +146,7 @@ with live_tab:
         frame_slot, counts_slot = st.empty(), st.empty()
         if running:
             pipeline = WastePipeline(
-                detector, db=db, controller=controller if actuate else None, source="ao-vivo"
+                detector, db=db, controller=controller if actuate else None, source="ao-vivo", review=review
             )
             try:
                 # O loop termina quando o toggle é desligado: o Streamlit reexecuta o script
@@ -137,7 +164,7 @@ with analysis_tab:
     )
     if upload is not None and upload.type.startswith("image"):
         image = load_image(upload.getvalue())
-        detections = detector.detect(image, waste_only=True)
+        detections = detector.detect(image, waste_only=True, single_item=single_item)
         left, right = st.columns([3, 2])
         left.image(rgb(annotate(image, detections)), width="stretch")
         with right:

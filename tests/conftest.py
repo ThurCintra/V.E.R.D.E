@@ -17,9 +17,19 @@ def model_path():
 
 @pytest.fixture(scope="session")
 def detector(model_path):
+    """Só o detector COCO (sem a 2ª etapa), para os testes não dependerem do classificador treinado."""
     from src.detector import Detector
 
-    return Detector(model_path)
+    return Detector(model_path, material_model=None)
+
+
+@pytest.fixture(scope="session")
+def material_model():
+    from src.paths import MATERIAL_MODEL
+
+    if not MATERIAL_MODEL.is_file():
+        pytest.skip("models/material_cls.pt não existe (treine com: python -m src.train trashnet)")
+    return MATERIAL_MODEL
 
 
 @pytest.fixture(scope="session")

@@ -12,6 +12,7 @@ import numpy as np
 from src.database import Database
 from src.detector import Detection, Detector, annotate
 from src.hardware_controller import HardwareController
+from src.review import ReviewCollector
 from src.tracker import SimpleTracker, Track
 
 
@@ -32,10 +33,12 @@ class WastePipeline:
         controller: HardwareController | None = None,
         tracker: SimpleTracker | None = None,
         source: str = "video",
+        review: ReviewCollector | None = None,
     ):
         self.detector = detector
         self.db = db
         self.controller = controller
+        self.review = review
         self.tracker = tracker or SimpleTracker()
         self.source = source
         self._index = 0
@@ -46,6 +49,8 @@ class WastePipeline:
 
     def process_frame(self, frame: np.ndarray) -> FrameResult:
         detections = self.detector.detect(frame, waste_only=True)
+        if self.review:
+            self.review.maybe_save(frame, detections, self.source)
         pairs, new_items = self.tracker.update(detections)
         track_ids = [track_id for _, track_id in pairs]
         for track in new_items:

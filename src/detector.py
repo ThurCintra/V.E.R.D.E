@@ -2,25 +2,37 @@
 
 Dois modos, escolhidos automaticamente pelo modelo carregado:
 
-- **Modelo customizado** (``models/waste_yolov8n.pt``, gerado por ``src/train.py``): as classes já são
+- **Modelo customizado** (``models/waste_detector.pt``, gerado por ``src/train.py``): as classes já são
   materiais/resíduos e viram categoria pelo nome.
 - **Heurístico COCO** (``models/yolov8n.pt``, enquanto não há modelo treinado): as classes do COCO que
   aparecem no lixo (garrafa, copo, talheres, frutas, livro…) são mapeadas para as 5 categorias da coleta
   seletiva.
+
+No modo COCO, se existir ``models/material_cls.pt`` (classificador de material treinado no TrashNet), cada
+objeto de material ambíguo (garrafa, copo, pote…) é recortado e reclassificado por ele: é o que separa garrafa
+PET de vidro. Com ``single_item=True`` (lixeira que fotografa um item por vez), uma foto em que o detector não
+achou nada é classificada inteira.
+
+Configuração por ambiente (``Detector.from_env``): ``WASTE_MODEL`` (ex.: ``yolov8s.pt``, mais preciso),
+``WASTE_IMGSZ`` (ex.: 960 para itens pequenos), ``DETECTOR_CONF``, ``WASTE_TTA=1`` (inferência com aumento de
+dados, mais lenta), ``WASTE_MATERIAL_MODEL`` (``off`` desliga a 2ª etapa) e ``WASTE_MATERIAL_CONF``.
 """
 
 from __future__ import annotations
 
+import os
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL
+from src.material import REFINABLE_LABELS, MaterialClassifier, crop
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, MATERIAL_MODEL
 from src.recycling import CATEGORIES, COCO_RULES, DEFAULT_WEIGHT_G, METAL, category_from_name
+from src.weights import resolve
 
 
 @dataclass(frozen=True)
@@ -30,6 +42,8 @@ class Detection:
     box: tuple[float, float, float, float]  # x1, y1, x2, y2 em pixels
     category: str | None = None  # None: não é resíduo (pessoa, carro…)
     weight_g: float = 0.0
+    material: str | None = None  # o que o classificador de material viu no recorte (glass, plastic…)
+    material_confidence: float | None = None
 
     @property
     def color_hex(self) -> str | None:
@@ -49,6 +63,9 @@ class Detection:
             "color": self.color_hex,
             "weight_g": self.weight_g,
             "command": self.command,
+            "material": (
+                {"label": self.material, "confidence": round(self.material_confidence, 4)} if self.material else None
+            ),
         }
 
 
@@ -63,8 +80,14 @@ class Detector:
         model_path: str | Path | None = None,
         conf: float = 0.25,
         device: str = "cpu",
+        imgsz: int = 640,
+        augment: bool = False,
+        material_model: str | Path | None = "auto",
+        material_conf: float = 0.6,
     ):
-        model_path = Path(model_path) if model_path else default_model_path()
+        """``material_model``: caminho do classificador de material, ``"auto"`` (usa ``models/material_cls.pt`` se
+        existir) ou ``None`` (desligado). ``material_conf``: confiança mínima para ele mudar a categoria."""
+        model_path = resolve(model_path) if model_path else default_model_path()
         if not model_path.is_file():
             raise FileNotFoundError(
                 f"Modelo não encontrado em {model_path}. Rode: python scripts/download_model.py"
@@ -73,8 +96,27 @@ class Detector:
         self.model = YOLO(str(model_path))
         self.conf = conf
         self.device = device
+        self.imgsz = imgsz
+        self.augment = augment
         names = self.model.names
         self.is_coco = len(names) == 80 and names[0] == "person"
+
+        if material_model == "auto":
+            material_model = MATERIAL_MODEL if MATERIAL_MODEL.is_file() else None
+        self.material = MaterialClassifier(material_model, device) if material_model else None
+        self.material_conf = material_conf
+
+    @classmethod
+    def from_env(cls) -> "Detector":
+        material = os.environ.get("WASTE_MATERIAL_MODEL", "auto")
+        return cls(
+            model_path=os.environ.get("WASTE_MODEL") or None,
+            conf=float(os.environ.get("DETECTOR_CONF", "0.25")),
+            imgsz=int(os.environ.get("WASTE_IMGSZ", "640")),
+            augment=os.environ.get("WASTE_TTA", "0") == "1",
+            material_model=None if material.lower() in ("off", "0", "none") else material,
+            material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.6")),
+        )
 
     @property
     def class_names(self) -> dict[int, str]:
@@ -82,7 +124,9 @@ class Detector:
 
     @property
     def mode(self) -> str:
-        return "coco-heuristico" if self.is_coco else "customizado"
+        if not self.is_coco:
+            return "customizado"
+        return "coco+material" if self.material else "coco-heuristico"
 
     def _classify(self, label: str) -> tuple[str | None, float]:
         if not self.is_coco:
@@ -93,10 +137,18 @@ class Detector:
             return None, 0.0
         return rule.category.name, rule.weight_g
 
-    def detect(self, image: str | Path | bytes | np.ndarray, waste_only: bool = False) -> list[Detection]:
-        """Recebe caminho, bytes de arquivo ou array BGR (como o OpenCV lê) e devolve as detecções."""
+    def detect(
+        self, image: str | Path | bytes | np.ndarray, waste_only: bool = False, single_item: bool = False
+    ) -> list[Detection]:
+        """Recebe caminho, bytes de arquivo ou array BGR (como o OpenCV lê) e devolve as detecções.
+
+        ``single_item``: a foto tem um resíduo só (lixeira com câmera fixa). Se o detector não achar nenhum, a
+        foto inteira passa pelo classificador de material.
+        """
         image = load_image(image)
-        result = self.model.predict(image, conf=self.conf, device=self.device, verbose=False)[0]
+        result = self.model.predict(
+            image, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False
+        )[0]
         names = result.names
         detections = []
         for xyxy, p, c in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(), result.boxes.cls.tolist()):
@@ -105,7 +157,36 @@ class Detector:
             if waste_only and category is None:
                 continue
             detections.append(Detection(label, float(p), tuple(float(v) for v in xyxy), category, weight))
+
+        if self.material and self.is_coco:
+            detections = self._refine(image, detections)
+        if single_item and self.material and not any(d.category for d in detections):
+            whole = self._whole_image(image)
+            if whole:
+                detections.append(whole)
         return detections
+
+    def _refine(self, image: np.ndarray, detections: list[Detection]) -> list[Detection]:
+        """Segunda etapa: reclassifica pelo recorte os objetos de material ambíguo."""
+        todo = [i for i, d in enumerate(detections) if d.label in REFINABLE_LABELS]
+        predictions = self.material.classify([crop(image, detections[i].box) for i in todo])
+        for i, pred in zip(todo, predictions):
+            det = detections[i]
+            det = replace(det, material=pred.label, material_confidence=pred.confidence)
+            if pred.confidence >= self.material_conf and pred.category != det.category:
+                det = replace(det, category=pred.category, weight_g=DEFAULT_WEIGHT_G[pred.category])
+            detections[i] = det
+        return detections
+
+    def _whole_image(self, image: np.ndarray) -> Detection | None:
+        (pred,) = self.material.classify([image])
+        if pred.confidence < self.material_conf:
+            return None
+        h, w = image.shape[:2]
+        return Detection(
+            pred.label, pred.confidence, (0.0, 0.0, float(w), float(h)), pred.category,
+            DEFAULT_WEIGHT_G[pred.category], pred.label, pred.confidence,
+        )
 
 
 def load_image(image: str | Path | bytes | np.ndarray) -> np.ndarray:

@@ -6,3 +6,4 @@ runs
 datasets
 storage
 models/*.pt
+!models/material_cls.pt

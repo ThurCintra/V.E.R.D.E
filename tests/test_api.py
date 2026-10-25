@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from src.api import create_app
 from src.hardware_controller import HardwareController, SimulatedBackend
+from src.review import ReviewCollector
 
 
 @pytest.fixture
@@ -11,8 +12,11 @@ def backend():
 
 
 @pytest.fixture
-def client(detector, db, backend):
-    app = create_app(detector=detector, db=db, controller=HardwareController(backend, cooldown_s=0))
+def client(detector, db, backend, tmp_path):
+    app = create_app(
+        detector=detector, db=db, controller=HardwareController(backend, cooldown_s=0),
+        review=ReviewCollector(tmp_path / "review", min_interval_s=0),
+    )
     with TestClient(app) as c:
         yield c
 
@@ -24,7 +28,9 @@ def post_image(client, path, **params):
 
 def test_health_e_categorias(client):
     health = client.get("/health").json()
-    assert health == {"status": "ok", "model": "yolov8n.pt", "mode": "coco-heuristico", "hardware": "sim"}
+    assert health == {
+        "status": "ok", "model": "yolov8n.pt", "mode": "coco-heuristico", "material_model": None, "hardware": "sim",
+    }
     cats = client.get("/categories").json()
     assert [c["command"] for c in cats] == ["P", "C", "M", "V", "O"]
 
@@ -37,7 +43,7 @@ def test_detect_devolve_classificacao_coordenadas_e_comando(client, coco_samples
     assert body["image"] == {"width": 480, "height": 640}
     assert body["count"] == len(body["detections"]) > 0
     first = body["detections"][0]
-    assert set(first) == {"label", "category", "confidence", "box", "color", "weight_g", "command"}
+    assert set(first) == {"label", "category", "confidence", "box", "color", "weight_g", "command", "material"}
     assert set(first["box"]) == {"x1", "y1", "x2", "y2"}
 
     action = body["action"]
@@ -73,3 +79,19 @@ def test_impacto_reflete_o_historico(client, coco_samples):
     impact = client.get("/impact", params={"days": 7}).json()
     assert impact["total"]["items"] == count
     assert impact["total"]["co2_kg"] > 0
+
+
+def test_casos_duvidosos_vao_para_revisao(client, coco_samples):
+    # Na foto da mesa há bananas com 25-41% de confiança: abaixo de 50%, viram caso para revisar
+    body = post_image(client, coco_samples["garrafas_banana"]).json()
+    assert body["review"]["needed"] and body["review"]["saved"]
+    assert any("baixa confiança" in r for r in body["review"]["reasons"])
+    assert client.get("/review").json() == {"enabled": True, "count": 1}
+    export = client.get("/review/export")
+    assert export.status_code == 200 and export.headers["content-type"] == "application/zip"
+
+
+def test_foto_sem_duvida_nao_vai_para_revisao(client, sample_image):
+    body = post_image(client, sample_image).json()  # ônibus e pessoas: nenhum resíduo, nada duvidoso
+    assert body["review"] == {"needed": False, "reasons": [], "saved": False}
+    assert client.get("/review").json()["count"] == 0
