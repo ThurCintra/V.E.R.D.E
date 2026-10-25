@@ -85,7 +85,7 @@ class MqttBackend:
         if client is None:
             import paho.mqtt.client as mqtt
 
-            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="waste-detector")
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="verde")
             client.connect(host, port)
             client.loop_start()
         self._client = client

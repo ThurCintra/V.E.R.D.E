@@ -1,4 +1,4 @@
-"""Dashboard de monitoramento e impacto ambiental.
+"""V.E.R.D.E.: dashboard de monitoramento e impacto ambiental.
 
     streamlit run app/dashboard.py
 """
@@ -31,7 +31,7 @@ from src.report import to_csv, to_pdf, totals_from_records  # noqa: E402
 TZ = ZoneInfo(os.environ.get("DISPLAY_TZ", "America/Sao_Paulo"))
 COLORS = {name: c.hex for name, c in CATEGORIES.items()}
 
-st.set_page_config(page_title="Detector de Resíduos", page_icon="♻️", layout="wide")
+st.set_page_config(page_title="V.E.R.D.E.", page_icon="♻️", layout="wide")
 
 
 @st.cache_resource
@@ -73,7 +73,8 @@ def counts_row(counts) -> None:
 
 # ---------------------------------------------------------------- barra lateral
 with st.sidebar:
-    st.title("♻️ Detector de Resíduos")
+    st.title("♻️ V.E.R.D.E.")
+    st.caption("Detector de resíduos recicláveis")
     conf = st.slider("Confiança mínima", 0.05, 0.9, 0.25, 0.05)
     detector = get_detector()
     detector.conf = conf

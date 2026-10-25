@@ -1,8 +1,11 @@
-# Detector de Resíduos Recicláveis
+# V.E.R.D.E.
+
+**Detector de resíduos recicláveis.**
 
 Visão computacional com YOLOv8 que classifica resíduos nas **5 categorias da coleta seletiva brasileira**,
 conta cada item uma vez em vídeo, registra o histórico, calcula o impacto ambiental e aciona a comporta
-certa de uma lixeira inteligente ou esteira (Arduino/ESP32 via serial ou MQTT).
+certa de uma lixeira inteligente ou esteira (Arduino/ESP32 via serial ou MQTT, opcional: sem hardware,
+os comandos são só simulados).
 
 | Categoria        | Cor (CONAMA 275/2001) | Comando |
 | ---------------- | --------------------- | ------- |
