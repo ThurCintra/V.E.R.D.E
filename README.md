@@ -111,7 +111,32 @@ vocabulário fica salvo em `models/verde_yoloworld.pt` e roda offline). Rode `in
 conferir tudo. Planos B automáticos: sem YOLO-World → YOLOE (baixa o MobileCLIP, ~600 MB) → YOLOv8 do COCO; sem
 Hugging Face → classificador local; sem Gemini → análise local.
 
-<!-- NUMEROS -->
+### O que cada estágio rende (medido)
+
+Conjunto de teste do TrashNet (379 fotos fora do treino, um objeto por foto, quase sempre de perto). O YOLO-World
+não entra na tabela: o ambiente onde ela foi feita não alcança o CLIP; o YOLOE, da mesma família, sim.
+
+| Configuração | Modo "1 objeto por foto" | Modo normal |
+| --- | --- | --- |
+| COCO, só o detector (Rápido) | 15,3% | 13,2% |
+| COCO + textura (Alta precisão) | 93,7% | 26,4% |
+| YOLOE, só o detector (Rápido) | 20,1% | 16,6% |
+| YOLOE + textura (Alta precisão) | **93,9%** | 31,4% |
+| YOLOE + textura + plano B da foto inteira | **93,9%** | **89,5%** |
+| COCO + textura + plano B da foto inteira | 93,7% | 84,4% |
+
+- O estágio 2 (textura) é o que leva de ~15% para ~94%.
+- O vocabulário aberto (YOLOE) ganha do COCO no modo normal (89,5% contra 84,4%): ele conhece latas, caixas
+  longa vida e tampinhas.
+- **Plano B da foto inteira:** no modo normal, se nada for achado (foto de perto: o objeto ocupa a foto toda, o
+  detector não o isola ou o filtro de 70% o descarta), a foto inteira vai para a textura, com pelo menos 60% de
+  certeza. Foi o que levou o modo normal de 31,4% para 89,5%. No vídeo ele fica desligado.
+- **CLAHE:** empatou no modo de 1 objeto e tirou 6 pontos do modo normal com o YOLOE (31,4% → 25,6%). Por isso vem
+  **desligado**; ligue em *Realce de contraste* no painel se a sua cena for escura ou tiver muito reflexo.
+- Numa foto de pilha de lixo misturado, o motor novo acha objetos que o anterior não via (caixa longa vida,
+  latas, tampinhas) e acerta a lata vermelha, mas a taxa de acerto continuou em torno de metade dos itens: o
+  especialista de textura, treinado em objetos isolados, ainda confunde plástico transparente com vidro. Para
+  pilhas, o caminho continua sendo corrigir pelo dashboard e re-treinar, e treinar o detector no Colab.
 
 ## Como a classificação funciona
 

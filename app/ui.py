@@ -23,7 +23,7 @@ EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩",
 DEFAULTS = {
     "um_objeto": False, "comportas": False, "detalhes": False,
     # Painel de calibração de precisão
-    "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False,
+    "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
 }
 MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
 MODE_HELP = {
@@ -94,6 +94,7 @@ def detector() -> Detector:
     lo, hi = cfg["tamanho"]
     det.min_area, det.max_area = max(lo / 100, 0.0005), hi / 100
     det.deep_scan_all = bool(cfg["deep_scan_todos"])
+    det.preprocess = bool(cfg["realce"])
     return det
 
 
@@ -127,6 +128,11 @@ def calibration_panel(current_frame=None) -> None:
 
         det = get_detector()
         st.markdown("**Fundo e iluminação**")
+        boost = st.toggle("Realce de contraste (CLAHE)", value=cfg["realce"],
+                          help="Para cenas escuras ou com reflexo. Nos testes, não melhorou fotos bem iluminadas "
+                               "(e piorou um pouco com vários objetos): ligue só se ajudar no seu caso.")
+        if boost != cfg["realce"]:
+            save_setting("realce", boost)
         st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
                    "realce de contraste se ajusta à luz.")
         if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None):

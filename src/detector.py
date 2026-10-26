@@ -14,7 +14,7 @@ Modos de operação: ``rapido`` (só o estágio 1), ``alta`` (1 + 2) e ``ultra``
 
 Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``yolo-world``, ``yoloe``
 ou ``coco``), ``WASTE_MODEL`` (um peso específico), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_TTA=1``,
-``WASTE_PREPROCESS=0``, ``WASTE_MATERIAL_MODEL`` (``off`` desliga o estágio 2), ``WASTE_HF_MODEL`` e
+``WASTE_PREPROCESS=1`` (liga o CLAHE), ``WASTE_MATERIAL_MODEL`` (``off`` desliga o estágio 2), ``WASTE_HF_MODEL`` e
 ``WASTE_MATERIAL_CONF``.
 """
 
@@ -148,7 +148,7 @@ class Detector:
         material_conf: float = 0.6,
         mode: str = "alta",
         detector_kind: str = "yolo-world",
-        preprocess: bool = True,
+        preprocess: bool = False,
         min_area: float = 0.0005,
         max_area: float = 0.70,
         deep_scanner="auto",
@@ -190,7 +190,7 @@ class Detector:
             material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.6")),
             mode=os.environ.get("WASTE_MODE", "alta"),
             detector_kind=os.environ.get("WASTE_DETECTOR", "yolo-world"),
-            preprocess=os.environ.get("WASTE_PREPROCESS", "1") != "0",
+            preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
         )
 
     # ------------------------------------------------------------ informações
@@ -251,12 +251,15 @@ class Detector:
         self.calibration = SceneCalibration.from_frame(frame) if frame is not None else None
 
     def detect(
-        self, image: str | Path | bytes | np.ndarray, waste_only: bool = False, single_item: bool = False
+        self, image: str | Path | bytes | np.ndarray, waste_only: bool = False, single_item: bool = False,
+        whole_image_fallback: bool = True,
     ) -> list[Detection]:
         """Recebe caminho, bytes de arquivo ou array BGR (como o OpenCV lê) e devolve as detecções.
 
         ``single_item``: a foto tem um resíduo só (lixeira com câmera fixa). O especialista de textura olha a foto
         inteira e, se tiver certeza, decide a categoria do item; o detector só dá a posição.
+        ``whole_image_fallback``: sem ``single_item``, se nenhum resíduo for achado, tenta a foto inteira (fotos de
+        perto). O vídeo desliga isso: num quadro vazio da câmera, não há nada a achar.
         """
         image = load_image(image)
         h, w = image.shape[:2]
@@ -285,8 +288,13 @@ class Detector:
 
         if self.texture and self.mode != "rapido":
             detections = self._ensemble(image, detections)
-        if single_item and self.texture and self.mode != "rapido":
-            detections = self._single_item(image, detections)
+        if self.texture and self.mode != "rapido":
+            if single_item:
+                detections = self._single_item(image, detections)
+            elif whole_image_fallback and not any(d.category for d in detections):
+                # Nada achado: quase sempre é uma foto de perto (o objeto ocupa a foto toda, o detector não o
+                # isola ou o filtro de 70% o descarta). A foto inteira entra, se a textura tiver certeza.
+                detections = self._single_item(image, detections)
         return detections
 
     # ------------------------------------------------------------ estágio 2
@@ -363,7 +371,7 @@ class Detector:
 
         t = time.monotonic() if timestamp is None else timestamp
         h, w = frame.shape[:2]
-        detections = self.detect(frame, waste_only=True)
+        detections = self.detect(frame, waste_only=True, whole_image_fallback=False)
         if detections:
             tracked = self.tracker.update(
                 sv.Detections(
