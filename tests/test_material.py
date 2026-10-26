@@ -72,7 +72,7 @@ PLAIN = np.full((480, 640, 3), 200, np.uint8)  # foto lisa: o detector não acha
 
 def test_modo_um_item_classifica_a_foto_inteira(det_with):
     detector = det_with(FakeTexture("cardboard", "Papel", 0.88))
-    assert detector.detect(PLAIN, waste_only=True) == []
+    assert detector.detect(PLAIN, waste_only=True, whole_image_fallback=False) == []
     (whole,) = detector.detect(PLAIN, waste_only=True, single_item=True)
     assert whole.category == "Papel" and whole.label == "cardboard"
     assert whole.box == (0.0, 0.0, 640.0, 480.0)
@@ -93,6 +93,13 @@ def test_modo_um_item_a_foto_inteira_decide_o_material(det_with, coco_samples):
 def test_modo_um_item_nao_inventa_quando_a_textura_duvida(det_with):
     detector = det_with(FakeTexture("cardboard", "Papel", 0.3))
     assert detector.detect(PLAIN, waste_only=True, single_item=True) == []
+    assert detector.detect(PLAIN, waste_only=True) == []
+
+
+def test_foto_de_perto_sem_deteccao_usa_a_foto_inteira(det_with):
+    # Sem "1 objeto por foto": se o detector não achar nada, a foto inteira entra como plano B
+    (whole,) = det_with(FakeTexture("metal", "Metal", 0.9)).detect(PLAIN, waste_only=True)
+    assert whole.category == "Metal" and whole.box == (0.0, 0.0, 640.0, 480.0)
 
 
 def test_descricao_reflete_os_estagios(det_with):

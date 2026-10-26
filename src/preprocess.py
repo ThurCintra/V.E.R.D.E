@@ -1,5 +1,9 @@
 """Pré-processamento da imagem antes da detecção e calibração da cena (fundo e iluminação).
 
+Desligado por padrão: no teste do TrashNet, o CLAHE empatou no modo de 1 objeto (93,9%) e tirou 6 pontos do modo
+de vários objetos com o YOLOE (31,4% → 25,6%). Pode valer a pena em cenas escuras ou com muito reflexo; ligue no
+painel ("Realce de contraste") ou com ``WASTE_PREPROCESS=1`` e compare.
+
 ``enhance``: CLAHE no canal L do espaço LAB (realça contraste local sem mexer nas cores, o que reduz o efeito de
 reflexos em plástico/vidro e de sombras) + filtro bilateral leve (tira ruído da webcam preservando bordas).
 
