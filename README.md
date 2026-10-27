@@ -3,17 +3,16 @@
 **Detector de resíduos recicláveis.**
 
 Visão computacional com YOLOv8 que classifica resíduos nas **5 categorias da coleta seletiva brasileira**,
-conta cada item uma vez em vídeo, registra o histórico, calcula o impacto ambiental e aciona a comporta
-certa de uma lixeira inteligente ou esteira (Arduino/ESP32 via serial ou MQTT, opcional: sem hardware,
-os comandos são só simulados).
+conta cada item uma vez em vídeo, registra o histórico e calcula o impacto ambiental. Roda como aplicativo
+de Windows (`VERDE.exe`), pelo código-fonte ou em Docker.
 
-| Categoria        | Cor (CONAMA 275/2001) | Comando |
-| ---------------- | --------------------- | ------- |
-| Plástico         | vermelha `#D62828`    | `P`     |
-| Papel            | azul `#1D4ED8`        | `C`     |
-| Metal            | amarela `#F2C200`     | `M`     |
-| Vidro            | verde `#2A9D3A`       | `V`     |
-| Orgânico/Rejeito | marrom `#7B4A1E`      | `O`     |
+| Categoria        | Cor (CONAMA 275/2001) |
+| ---------------- | --------------------- |
+| Plástico         | vermelha `#D62828`    |
+| Papel            | azul `#1D4ED8`        |
+| Metal            | amarela `#F2C200`     |
+| Vidro            | verde `#2A9D3A`       |
+| Orgânico/Rejeito | marrom `#7B4A1E`      |
 
 ## Estrutura
 
@@ -26,8 +25,8 @@ src/
   temporal.py            estágio 3: votação EMA por objeto, caixa suavizada, "parado no centro"
   deep_scan.py           Deep Scan em segundo plano (Gemini 2.5 Flash ou análise local)
   material.py            recorte e classificador local (usado pelo re-treino e pela avaliação)
-  recycling.py           categorias, cores, comandos, mapeamento COCO e por nome de classe
-  pipeline.py            detecção → rastreamento → histórico → comporta, frame a frame
+  recycling.py           categorias, cores, mapeamento COCO e por nome de classe
+  pipeline.py            detecção → rastreamento → histórico, frame a frame
   train.py               fine-tuning (TACO, TrashNet, Roboflow ou data.yaml próprio)
   evaluate.py            acurácia, mAP e matrizes de confusão (relatórios em reports/)
   review.py              guarda os casos duvidosos, já rotulados, para revisão humana
@@ -37,15 +36,54 @@ src/
   impact.py              CO2 evitado, energia economizada e água poupada
   report.py              exportação CSV e PDF
   api.py                 API REST (FastAPI)
-  hardware_controller.py comandos para o microcontrolador (simulado, serial, MQTT)
 app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/views/, peças em app/ui.py
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
-firmware/lixeira/        sketch Arduino/ESP32 das comportas
+desktop/                 aplicativo de desktop: lançador, ícone e receita do PyInstaller (VERDE.exe)
 scripts/                 download dos modelos, imagens de teste e verificar_modelos.py
 ```
 
-## Como rodar
+## Aplicativo para Windows (VERDE.exe)
+
+Para quem só quer usar, sem instalar Python:
+
+1. Baixe o `VERDE-windows.zip` na página **Releases** do repositório (ou em **Actions** → última execução de
+   *Gerar VERDE.exe (Windows)* → *Artifacts*).
+2. Extraia o .zip inteiro numa pasta e dê dois cliques em `VERDE.exe`.
+3. O V.E.R.D.E. abre numa janela própria (Edge ou Chrome em modo aplicativo, sem barra de endereço). Fechar a
+   janela encerra o programa. Sem Edge nem Chrome, ele abre no navegador padrão.
+
+O pacote já traz o detector com o vocabulário de resíduos (`verde_yoloworld.pt`), o `yolov8s.pt` e o
+classificador de material, então funciona sem internet. A webcam do computador funciona na aba **Ao vivo**.
+Os dados do usuário (histórico, correções, configurações) ficam em `%LOCALAPPDATA%\VERDE` e sobrevivem a
+uma atualização do programa. Uma `GEMINI_API_KEY` pode ir num arquivo `.env` ao lado do `VERDE.exe`.
+
+O Windows SmartScreen pode avisar "O Windows protegeu o computador", porque o executável não tem assinatura
+digital paga: clique em **Mais informações → Executar assim mesmo**.
+
+### Gerando o .exe
+
+O executável é gerado pelo GitHub Actions numa máquina Windows (`.github/workflows/build-windows.yml`):
+
+- **Manual:** aba **Actions** → *Gerar VERDE.exe (Windows)* → **Run workflow**. O .zip sai em *Artifacts*.
+- **Versão:** `git tag v1.0.0 && git push origin v1.0.0` gera o .zip e cria uma Release com ele.
+
+Para gerar no seu próprio Windows (o PyInstaller não gera .exe a partir de Linux ou Mac):
+
+```powershell
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt pyinstaller
+python scripts/download_model.py
+python -c "from src.open_vocab import build_vocabulary_model; build_vocabulary_model('yolo-world')"
+pyinstaller desktop/verde.spec --noconfirm
+dist\VERDE\VERDE.exe --check      # autoteste: carrega os modelos e analisa a foto de exemplo
+```
+
+O resultado é a pasta `dist\VERDE\` (o `VERDE.exe` e a pasta `_internal`), com cerca de 1 GB por causa do
+PyTorch. É uma pasta, não um .exe único, porque um arquivo só teria de ser descompactado inteiro a cada
+abertura. `python desktop/verde.py` abre a mesma janela a partir do código-fonte.
+
+## Como rodar (código-fonte)
 
 Dentro da pasta do projeto, um comando só. Na primeira vez ele cria o ambiente, instala as dependências
 (alguns minutos) e baixa o modelo; nas outras, abre direto.
@@ -294,7 +332,7 @@ Cada objeto ganha um número (`tracker_id`) do **ByteTrack** (pacote `trackers`,
 - **votação temporal (EMA de 12 quadros):** a categoria mostrada só muda quando a nova passa de 50% na média *e*
   supera a atual por 10 pontos. Um objeto em que o modelo hesita entre plástico e vidro não fica piscando;
 - **caixa suavizada** por um filtro de Savitzky-Golay (`scipy`), que tira o tremor sem atrasar a caixa;
-- **contagem única:** ele entra no histórico e aciona a comporta uma vez, depois de aparecer em 3 quadros.
+- **contagem única:** ele entra no histórico uma vez, depois de aparecer em 3 quadros.
 
 ## Impacto ambiental
 
@@ -322,9 +360,8 @@ Menu no topo com quatro páginas, pensado para quem nunca usou o sistema:
 - **🌳 Meu impacto**: CO₂, energia e água poupados, com comparações do dia a dia (km sem carro, dias de energia
   de uma casa, banhos), gráficos por dia e por lixeira, e relatório em PDF ou planilha CSV.
 - **🎓 Ensinar o sistema**: quantos exemplos você já corrigiu e o botão de re-treino.
-- **⚙️ Configurações**: sensibilidade (Detectar mais / Equilibrada / Só com certeza), detalhes técnicos,
-  lixeira automática com Arduino/ESP32 (desligada por padrão: só serve para quem montou uma lixeira com motores)
-  e casos duvidosos para baixar.
+- **⚙️ Configurações**: sensibilidade (Detectar mais / Equilibrada / Só com certeza), detalhes técnicos e
+  casos duvidosos para baixar.
 
 As escolhas ficam salvas em `storage/configuracoes.json`. O visual (cores, cantos, menu) está em
 `.streamlit/config.toml` e no CSS de `app/ui.py`; cada página fica em `app/views/`.
@@ -335,17 +372,17 @@ Documentação interativa em `http://localhost:8000/docs`.
 
 | Método | Rota          | Descrição                                      |
 | ------ | ------------- | ---------------------------------------------- |
-| GET    | `/health`     | status, modelo em uso e backend de hardware    |
-| GET    | `/categories` | categorias, cores e comandos                   |
-| POST   | `/detect`     | classifica uma imagem e devolve o comando      |
+| GET    | `/health`     | status e modelo em uso                         |
+| GET    | `/categories` | categorias e cores                             |
+| POST   | `/detect`     | classifica uma imagem e indica a lixeira       |
 | GET    | `/impact`     | impacto do histórico (`?days=30` para filtrar) |
 
 `POST /detect` recebe a imagem em `multipart/form-data` no campo `file`. Parâmetros de query:
-`actuate` (envia o comando ao hardware, padrão `false`), `save` (grava no histórico, padrão `true`) e
+`save` (grava no histórico, padrão `true`) e
 `waste_only` (esconde o que não é resíduo, padrão `true`).
 
 ```bash
-curl -F file=@data/mesa_vinho.jpg "http://localhost:8000/detect?actuate=true"
+curl -F file=@data/mesa_vinho.jpg "http://localhost:8000/detect"
 ```
 
 ```json
@@ -360,54 +397,25 @@ curl -F file=@data/mesa_vinho.jpg "http://localhost:8000/detect?actuate=true"
       "confidence": 0.9183,
       "box": {"x1": 163.1, "y1": 155.4, "x2": 252.6, "y2": 368.6},
       "color": "#2A9D3A",
-      "weight_g": 150,
-      "command": "V"
+      "weight_g": 150
     }
   ],
   "action": {
     "category": "Vidro",
-    "command": "V",
     "bin": "Vidro (lixeira verde)",
     "label": "wine glass",
-    "confidence": 0.9183,
-    "sent": true
+    "confidence": 0.9183
   }
 }
 ```
 
-`action` é o item de maior confiança, aquele cuja comporta deve abrir, e vem `null` se nenhum resíduo for
-reconhecido. Um ESP32-CAM pode tirar a foto, mandar para `/detect` e usar `action.command` direto.
-
-## Integração IoT
-
-Protocolo: um caractere por categoria (`P`, `C`, `M`, `V`, `O`), seguido de `\n` na serial. O backend é
-escolhido por variáveis de ambiente:
-
-| Variável              | Padrão            | Uso                                           |
-| --------------------- | ----------------- | --------------------------------------------- |
-| `HARDWARE_BACKEND`    | `sim`             | `sim` (só registra), `serial` ou `mqtt`       |
-| `SERIAL_PORT`         | `/dev/ttyUSB0`    | porta do Arduino/ESP32 (Windows: `COM3`)      |
-| `SERIAL_BAUD`         | `115200`          |                                               |
-| `MQTT_HOST`           | `localhost`       | broker                                        |
-| `MQTT_PORT`           | `1883`            |                                               |
-| `MQTT_TOPIC`          | `lixeira/comando` | o payload é o caractere do comando            |
-| `HARDWARE_COOLDOWN_S` | `1.5`             | não repete o mesmo comando dentro desse tempo |
-
-O sketch `firmware/lixeira/lixeira.ino` controla 5 servos (Arduino: pinos 3, 5, 6, 9 e 10). Para cada
-comando, abre a comporta por 2 s e responde `OK <comando>`. No ESP32, instale a biblioteca `ESP32Servo`.
-Uma falha no hardware (cabo solto) é registrada no log e não derruba a API.
-
-```python
-from src.hardware_controller import HardwareController, SerialBackend
-
-HardwareController(SerialBackend("COM3")).actuate("Metal")   # envia "M\n"
-```
+`action` é o item de maior confiança, a lixeira que vale para a foto, e vem `null` se nenhum resíduo for
+reconhecido.
 
 ## Deploy com Docker
 
 ```bash
 docker compose up -d --build                 # API em :8000 e dashboard em :8501
-docker compose --profile mqtt up -d --build  # também sobe um broker Mosquitto em :1883
 ```
 
 - A imagem usa PyTorch só de CPU e OpenCV headless, e roda em x86_64 e ARM64 (Raspberry Pi 4/5 com SO de
@@ -415,9 +423,7 @@ docker compose --profile mqtt up -d --build  # também sobe um broker Mosquitto 
 - `./models` e `./storage` são volumes. O modelo base é baixado na primeira subida, e um
   `waste_detector.pt` colocado em `./models` passa a ser usado. O histórico SQLite é compartilhado entre a
   API e o dashboard.
-- Arduino/ESP32 por USB: defina `HARDWARE_BACKEND=serial` e descomente `devices` no `docker-compose.yml`.
-  Para a câmera do servidor, descomente `/dev/video0` no serviço `dashboard`.
-- MQTT com o broker do compose: `HARDWARE_BACKEND=mqtt docker compose --profile mqtt up -d`.
+- Para a câmera do servidor, descomente `/dev/video0` no serviço `dashboard` do `docker-compose.yml`.
 
 ## Dados de teste
 
