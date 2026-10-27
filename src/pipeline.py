@@ -1,4 +1,4 @@
-"""Vídeo e câmera: detecção + rastreamento (ByteTrack) + gravação + acionamento, quadro a quadro.
+"""Vídeo e câmera: detecção + rastreamento (ByteTrack) + gravação, quadro a quadro.
 
 Cada objeto (``tracker_id``) é contado uma vez, quando já foi visto em ``min_frames`` quadros, com a categoria
 estabilizada pela votação temporal do detector. Usado pelo dashboard.
@@ -17,7 +17,6 @@ import numpy as np
 
 from src.database import Database
 from src.detector import Detection, Detector, annotate
-from src.hardware_controller import HardwareController
 from src.review import ReviewCollector
 
 
@@ -38,7 +37,6 @@ class WastePipeline:
         self,
         detector: Detector,
         db: Database | None = None,
-        controller: HardwareController | None = None,
         source: str = "video",
         review: ReviewCollector | None = None,
         min_frames: int = 3,
@@ -46,7 +44,6 @@ class WastePipeline:
         """``min_frames``: quadros em que o objeto precisa aparecer antes de contar (descarta detecções-fantasma)."""
         self.detector = detector
         self.db = db
-        self.controller = controller
         self.review = review
         self.source = source
         self.min_frames = min_frames
@@ -69,8 +66,6 @@ class WastePipeline:
             self.counts[det.category] += 1
             if self.db:
                 self.db.add(det.label, det.category, det.confidence, det.weight_g, self.source, det.tracker_id)
-            if self.controller:
-                self.controller.actuate(det.category)
         annotated = annotate(frame, detections, [d.tracker_id for d in detections], compact=True)
         result = FrameResult(self._index, detections, new_items, annotated)
         self._index += 1

@@ -1,5 +1,4 @@
 # docker compose up -d                    → API (8000) + dashboard (8501)
-# docker compose --profile mqtt up -d     → também sobe um broker MQTT (1883)
 x-app: &app
   build: .
   image: verde
@@ -11,12 +10,6 @@ x-app: &app
     - path: .env
       required: false
   environment:
-    HARDWARE_BACKEND: ${HARDWARE_BACKEND:-sim}   # sim | serial | mqtt
-    SERIAL_PORT: ${SERIAL_PORT:-/dev/ttyUSB0}
-    SERIAL_BAUD: ${SERIAL_BAUD:-115200}
-    MQTT_HOST: ${MQTT_HOST:-mqtt}
-    MQTT_PORT: ${MQTT_PORT:-1883}
-    MQTT_TOPIC: ${MQTT_TOPIC:-lixeira/comando}
     DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
     WASTE_MODE: ${WASTE_MODE:-alta}                # rapido | alta | ultra
     WASTE_DETECTOR: ${WASTE_DETECTOR:-yolo-world}  # yolo-world | yoloe | coco
@@ -26,9 +19,6 @@ x-app: &app
     WASTE_MATERIAL_CONF: ${WASTE_MATERIAL_CONF:-0.6}
     WASTE_SINGLE_ITEM: ${WASTE_SINGLE_ITEM:-0}     # 1 = lixeira que fotografa um item por vez
     WASTE_REVIEW: ${WASTE_REVIEW:-1}               # guarda casos duvidosos em storage/review
-  # Arduino/ESP32 pela USB (HARDWARE_BACKEND=serial): descomente
-  # devices:
-  #   - /dev/ttyUSB0:/dev/ttyUSB0
 
 services:
   api:
@@ -55,12 +45,3 @@ services:
     # Câmera do servidor na aba "Ao Vivo": descomente
     # devices:
     #   - /dev/video0:/dev/video0
-
-  mqtt:
-    image: eclipse-mosquitto:2
-    profiles: ["mqtt"]
-    restart: unless-stopped
-    ports:
-      - "1883:1883"
-    volumes:
-      - ./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro

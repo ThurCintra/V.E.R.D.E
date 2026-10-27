@@ -14,14 +14,13 @@ from src import paths
 from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
 from src.database import Database
 from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate
-from src.hardware_controller import HardwareController, choose_action, controller_from_env
 from src.material import crop
 from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
 from src.review import ReviewCollector
 
 EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩", "Orgânico/Rejeito": "🟫", NOT_WASTE: "⬜"}
 DEFAULTS = {
-    "um_objeto": False, "comportas": False, "detalhes": False,
+    "um_objeto": False, "detalhes": False,
     # Painel de calibração de precisão
     "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
 }
@@ -43,11 +42,6 @@ def get_detector() -> Detector:
 @st.cache_resource
 def get_db(path: str) -> Database:
     return Database(path)
-
-
-@st.cache_resource
-def get_controller() -> HardwareController:
-    return controller_from_env()
 
 
 @st.cache_resource
@@ -152,7 +146,7 @@ def calibration_panel(current_frame=None) -> None:
 
 def first_time(key: str) -> bool:
     """True só na primeira vez nesta sessão. O Streamlit reexecuta a página a cada clique: sem isso, a mesma
-    foto seria registrada no histórico (e a comporta acionada) de novo a cada botão apertado."""
+    foto seria registrada no histórico de novo a cada botão apertado."""
     done = st.session_state.setdefault("_feito", set())
     if key in done:
         return False
@@ -419,9 +413,6 @@ def show_result(image, data_key: str, source: str) -> None:
             for name in present:
                 bin_card(name, counts[name])
 
-        action = choose_action(detections)
-        if cfg["comportas"] and first_time(f"actuate_{data_key}"):
-            get_controller().actuate(action.category)
         if st.button("✅ Registrar no meu impacto", type="primary", key=f"reg_{data_key}", width="stretch"):
             if first_time(f"db_{data_key}"):
                 db().add_detections(detections, source=source)

@@ -1,12 +1,10 @@
-from src.hardware_controller import HardwareController, SimulatedBackend
 from src.pipeline import WastePipeline
 
 
 def test_video_conta_cada_objeto_uma_vez(detector, conveyor_video, coco_samples, db):
     # Itens da foto parada, para comparar
     still = detector.detect(coco_samples["garrafas_banana"], waste_only=True)
-    controller = HardwareController(SimulatedBackend(), cooldown_s=0)
-    pipeline = WastePipeline(detector, db=db, controller=controller)
+    pipeline = WastePipeline(detector, db=db)
 
     frames = list(pipeline.process_video(conveyor_video))
     assert len(frames) == 30
@@ -19,7 +17,6 @@ def test_video_conta_cada_objeto_uma_vez(detector, conveyor_video, coco_samples,
     assert len(db.records()) == counted
     assert {r["source"] for r in db.records()} == {"video"}
     assert all(r["track_id"] is not None for r in db.records())  # os ids do ByteTrack começam em 0
-    assert len(controller.backend.sent) == counted
     assert pipeline.counts["Plástico"] >= 1
 
 

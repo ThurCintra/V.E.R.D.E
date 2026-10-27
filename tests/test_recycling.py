@@ -3,12 +3,10 @@ import pytest
 from src.recycling import CATEGORIES, COCO_RULES, category_from_name
 
 
-def test_cinco_categorias_com_cores_conama_e_comandos_unicos():
+def test_cinco_categorias_com_cores_conama():
     assert list(CATEGORIES) == ["Plástico", "Papel", "Metal", "Vidro", "Orgânico/Rejeito"]
     assert {c.color_name for c in CATEGORIES.values()} == {"vermelha", "azul", "amarela", "verde", "marrom"}
-    commands = [c.command for c in CATEGORIES.values()]
-    assert len(set(commands)) == 5
-    assert CATEGORIES["Plástico"].command == "P" and CATEGORIES["Metal"].command == "M"
+    assert len({c.hex for c in CATEGORIES.values()}) == 5
 
 
 def test_hex_vira_bgr():

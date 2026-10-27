@@ -11,7 +11,6 @@ def app(tmp_path, monkeypatch, model_path):
     monkeypatch.setenv("WASTE_STORAGE_DIR", str(tmp_path / "storage"))
     monkeypatch.setenv("WASTE_DB_PATH", str(tmp_path / "dash.db"))
     monkeypatch.setenv("WASTE_MODEL", str(model_path))  # yolov8n: mais rápido nos testes
-    monkeypatch.setenv("HARDWARE_BACKEND", "sim")
     # paths.py lê o ambiente na importação: recarrega para as pastas temporárias valerem
     import importlib
 

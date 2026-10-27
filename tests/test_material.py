@@ -40,7 +40,7 @@ def test_textura_confiante_vence_o_detector_no_ensemble(det_with, coco_samples):
     fake = FakeTexture("glass", "Vidro", 0.93)
     detections = det_with(fake).detect(coco_samples["vinho"], waste_only=True)
     bottles = [d for d in detections if d.label == "bottle"]
-    assert bottles and all(d.category == "Vidro" and d.command == "V" for d in bottles)
+    assert bottles and all(d.category == "Vidro" for d in bottles)
     assert all(d.material == "glass" and d.material_confidence == pytest.approx(0.93) for d in bottles)
     assert all(sum(d.probs.values()) == pytest.approx(1) for d in bottles)
     assert fake.seen  # recebeu os recortes

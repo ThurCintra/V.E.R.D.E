@@ -72,10 +72,6 @@ class Detection:
     def color_hex(self) -> str | None:
         return CATEGORIES[self.category].hex if self.category else None
 
-    @property
-    def command(self) -> str | None:
-        return CATEGORIES[self.category].command if self.category else None
-
     def top_probs(self, n: int = 3) -> list[tuple[str, float]]:
         if not self.probs:
             return [(self.category, 1.0)] if self.category else []
@@ -90,7 +86,6 @@ class Detection:
             "box": {"x1": round(x1, 1), "y1": round(y1, 1), "x2": round(x2, 1), "y2": round(y2, 1)},
             "color": self.color_hex,
             "weight_g": self.weight_g,
-            "command": self.command,
             "material": (
                 {"label": self.material, "confidence": round(self.material_confidence, 4)} if self.material else None
             ),
@@ -102,6 +97,12 @@ class Detection:
                 if self.scan else None
             ),
         }
+
+
+def best_waste(detections) -> Detection | None:
+    """O resíduo detectado com maior confiança: a lixeira que vale para a foto inteira."""
+    waste = [d for d in detections if d.category]
+    return max(waste, key=lambda d: d.confidence) if waste else None
 
 
 def default_model_path() -> Path:
