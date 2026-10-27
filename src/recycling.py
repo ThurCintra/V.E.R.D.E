@@ -18,7 +18,6 @@ class Category:
     name: str
     color_name: str  # cor da lixeira, no feminino ("lixeira amarela")
     hex: str
-    command: str  # caractere enviado ao microcontrolador para abrir a comporta
 
     @property
     def bgr(self) -> tuple[int, int, int]:
@@ -26,11 +25,11 @@ class Category:
         return (b, g, r)
 
 
-PLASTICO = Category("Plástico", "vermelha", "#D62828", "P")
-PAPEL = Category("Papel", "azul", "#1D4ED8", "C")  # C de celulose/cartão (P já é do plástico)
-METAL = Category("Metal", "amarela", "#F2C200", "M")
-VIDRO = Category("Vidro", "verde", "#2A9D3A", "V")
-ORGANICO = Category("Orgânico/Rejeito", "marrom", "#7B4A1E", "O")
+PLASTICO = Category("Plástico", "vermelha", "#D62828")
+PAPEL = Category("Papel", "azul", "#1D4ED8")
+METAL = Category("Metal", "amarela", "#F2C200")
+VIDRO = Category("Vidro", "verde", "#2A9D3A")
+ORGANICO = Category("Orgânico/Rejeito", "marrom", "#7B4A1E")
 
 CATEGORIES: dict[str, Category] = {c.name: c for c in (PLASTICO, PAPEL, METAL, VIDRO, ORGANICO)}
 RECYCLABLE = (PLASTICO.name, PAPEL.name, METAL.name, VIDRO.name)

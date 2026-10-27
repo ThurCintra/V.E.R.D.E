@@ -117,14 +117,14 @@ def evaluate_material(model_path: str | Path = MATERIAL_MODEL, test_dir: str | P
 
 def evaluate_system(detector, test_dir: str | Path = TRASHNET_TEST, single_item: bool = True) -> dict:
     """Sistema inteiro, como a API decide: a categoria do resíduo mais confiante da foto (ou "nenhum")."""
-    from src.hardware_controller import choose_action
+    from src.detector import best_waste
 
     items = labeled_images(test_dir)
     truth, pred = [], []
     for path, cls in items:
-        action = choose_action(detector.detect(path, waste_only=True, single_item=single_item))
+        best = best_waste(detector.detect(path, waste_only=True, single_item=single_item))
         truth.append(category_from_name(cls).name)
-        pred.append(action.category if action else NONE)
+        pred.append(best.category if best else NONE)
     categories = [c for c in CATEGORIES if c in set(truth)]
     result = metrics(truth, pred, categories)
     result["recognized"] = round(sum(p != NONE for p in pred) / len(pred), 4)

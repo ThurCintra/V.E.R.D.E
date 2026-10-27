@@ -2,21 +2,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import create_app
-from src.hardware_controller import HardwareController, SimulatedBackend
 from src.review import ReviewCollector
 
 
 @pytest.fixture
-def backend():
-    return SimulatedBackend()
-
-
-@pytest.fixture
-def client(detector, db, backend, tmp_path):
-    app = create_app(
-        detector=detector, db=db, controller=HardwareController(backend, cooldown_s=0),
-        review=ReviewCollector(tmp_path / "review", min_interval_s=0),
-    )
+def client(detector, db, tmp_path):
+    app = create_app(detector=detector, db=db, review=ReviewCollector(tmp_path / "review", min_interval_s=0))
     with TestClient(app) as c:
         yield c
 
@@ -30,14 +21,14 @@ def test_health_e_categorias(client):
     health = client.get("/health").json()
     assert health == {
         "status": "ok", "model": "yolov8n.pt", "detector": "coco", "mode": "alta", "texture": None,
-        "pipeline": "coco", "hardware": "sim",
+        "pipeline": "coco",
     }
     cats = client.get("/categories").json()
-    assert [c["command"] for c in cats] == ["P", "C", "M", "V", "O"]
+    assert [c["color"] for c in cats] == ["vermelha", "azul", "amarela", "verde", "marrom"]
 
 
-def test_detect_devolve_classificacao_coordenadas_e_comando(client, coco_samples, db, backend):
-    r = post_image(client, coco_samples["garrafas_banana"], actuate=True)
+def test_detect_devolve_classificacao_coordenadas_e_lixeira(client, coco_samples, db):
+    r = post_image(client, coco_samples["garrafas_banana"])
     assert r.status_code == 200
     body = r.json()
     assert body["model"] == "coco" and body["mode"] == "alta"
@@ -45,23 +36,21 @@ def test_detect_devolve_classificacao_coordenadas_e_comando(client, coco_samples
     assert body["count"] == len(body["detections"]) > 0
     first = body["detections"][0]
     assert set(first) == {
-        "label", "category", "confidence", "box", "color", "weight_g", "command", "material", "probs", "tracker_id",
+        "label", "category", "confidence", "box", "color", "weight_g", "material", "probs", "tracker_id",
         "deep_scan",
     }
     assert set(first["box"]) == {"x1", "y1", "x2", "y2"}
 
     action = body["action"]
     best = max(body["detections"], key=lambda d: d["confidence"])
-    assert action["category"] == best["category"] and action["command"] == best["command"]
-    assert action["sent"] is True
-    assert backend.sent == [action["command"]]
+    assert action["category"] == best["category"] and action["label"] == best["label"]
+    assert action["bin"].startswith(best["category"])
     assert len(db.records()) == body["count"]
 
 
-def test_detect_sem_acionar_nem_gravar(client, coco_samples, db, backend):
+def test_detect_sem_gravar(client, coco_samples, db):
     body = post_image(client, coco_samples["vinho"], save=False).json()
-    assert body["action"]["sent"] is False
-    assert backend.sent == []
+    assert body["action"] is not None
     assert db.records() == []
 
 

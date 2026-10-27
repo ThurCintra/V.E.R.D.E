@@ -56,8 +56,7 @@ def analyze_video(data: bytes, name: str) -> None:
         cap = cv2.VideoCapture(tmp.name)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         cap.release()
-        controller = ui.get_controller() if cfg["comportas"] else None
-        pipeline = WastePipeline(ui.detector(), db=ui.db() if save else None, controller=controller, source="video")
+        pipeline = WastePipeline(ui.detector(), db=ui.db() if save else None, source="video")
         progress, frame_slot = st.progress(0.0, "Analisando..."), st.empty()
         for result in pipeline.process_video(tmp.name, every_n=every_n):
             progress.progress(min(1.0, (result.index + 1) * every_n / total), "Analisando...")
@@ -125,8 +124,7 @@ else:
     frame_slot = video_col.empty()
     counts_slot, items_slot = list_col.empty(), list_col.empty()
     if running:
-        controller = ui.get_controller() if cfg["comportas"] else None
-        pipeline = WastePipeline(ui.detector(), db=ui.db(), controller=controller, source="ao-vivo", review=ui.review())
+        pipeline = WastePipeline(ui.detector(), db=ui.db(), source="ao-vivo", review=ui.review())
         try:
             # O loop termina quando a chave é desligada: o Streamlit reexecuta a página
             for result in pipeline.process_video(int(cam) if cam.isdigit() else cam, every_n=1):
