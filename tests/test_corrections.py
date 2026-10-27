@@ -108,3 +108,20 @@ def test_retreino_de_verdade_troca_o_modelo_e_permite_voltar(storage, tmp_path, 
 
 def test_restaurar_sem_backup(storage):
     assert restore_previous() is False
+
+
+def test_segundo_treino_nao_tropeca_nas_sobras_do_primeiro(tmp_path):
+    """Regressão: no Windows, a pasta do treino anterior às vezes não pode ser apagada (arquivo em uso) e o
+    atalho (hard link) antigo continuava lá: o 2º treino quebrava com "are the same file"."""
+    from src.corrections import _fresh_work_dir, _link
+
+    src = tmp_path / "trashnet" / "cardboard1.jpg"
+    src.parent.mkdir()
+    src.write_bytes(b"foto")
+    first = _fresh_work_dir(tmp_path / "retreino")
+    _link(src, first / "train" / "cardboard" / "cardboard1.jpg")
+    _link(src, first / "train" / "cardboard" / "cardboard1.jpg")  # sobra no mesmo lugar: aproveita, sem erro
+    second = _fresh_work_dir(tmp_path / "retreino")
+    assert second != first and second.is_dir()
+    _link(src, second / "train" / "cardboard" / "cardboard1.jpg")
+    assert (second / "train" / "cardboard" / "cardboard1.jpg").read_bytes() == b"foto"
