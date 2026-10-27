@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,9 +26,9 @@ from src.recycling import CATEGORIES, category_from_name
 log = logging.getLogger(__name__)
 
 CATEGORY_ORDER = list(CATEGORIES)
-# Sugestão de modelo no Hugging Face. Não foi possível verificar se ele existe (o Hugging Face é inacessível no
-# ambiente onde isto foi escrito): se não existir, o especialista local assume sozinho.
-DEFAULT_HF_MODEL = "watersplash/waste-classification"
+# Sugestão de modelo no Hugging Face, para pôr em WASTE_HF_MODEL. Não foi possível verificar se ele existe (o
+# Hugging Face é inacessível no ambiente onde isto foi escrito): se não existir, o especialista local assume.
+SUGGESTED_HF_MODEL = "watersplash/waste-classification"
 SHAPE_WEIGHT, TEXTURE_WEIGHT = 0.4, 0.6
 
 
@@ -80,13 +81,16 @@ class LocalTextureExpert:
         self.model_path = model_path or paths.active_material_model()
         self.model = YOLO(str(self.model_path), task="classify")
         self.device, self.imgsz = device, imgsz
+        self._lock = threading.Lock()  # usado pela análise e pelo Deep Scan (outra thread) ao mesmo tempo
 
     def predict(self, crops: list[np.ndarray]) -> list[TexturePrediction]:
         crops = [c for c in crops if c is not None and c.size]
         if not crops:
             return []
+        with self._lock:
+            results = self.model.predict(crops, imgsz=self.imgsz, device=self.device, verbose=False)
         out = []
-        for r in self.model.predict(crops, imgsz=self.imgsz, device=self.device, verbose=False):
+        for r in results:
             probs = r.probs.data.tolist()
             by_class = {r.names[i]: p for i, p in enumerate(probs)}
             label = r.names[int(r.probs.top1)]
@@ -107,6 +111,7 @@ class HFTextureExpert:
         self.processor = processor or AutoImageProcessor.from_pretrained(model_id)
         self.model = (model or AutoModelForImageClassification.from_pretrained(model_id)).eval().to(device)
         self.device = device
+        self._lock = threading.Lock()  # usado pela análise e pelo Deep Scan (outra thread) ao mesmo tempo
         labels = list(self.model.config.id2label.values())
         if not any(category_from_name(label).name != "Orgânico/Rejeito" for label in labels):
             raise ValueError(f"Os rótulos de {model_id} não parecem materiais: {labels[:6]}")
@@ -119,7 +124,7 @@ class HFTextureExpert:
             return []
         rgb = [np.ascontiguousarray(c[:, :, ::-1]) for c in crops]  # o OpenCV dá BGR
         inputs = self.processor(images=rgb, return_tensors="pt").to(self.device)
-        with torch.no_grad():
+        with self._lock, torch.no_grad():
             probs = self.model(**inputs).logits.softmax(-1).cpu().numpy()
         id2label = self.model.config.id2label
         out = []
@@ -131,8 +136,10 @@ class HFTextureExpert:
 
 
 def load_texture_expert(device: str = "cpu"):
-    """Hugging Face se configurado e acessível; senão o modelo local. Devolve None se nenhum existir."""
-    model_id = os.environ.get("WASTE_HF_MODEL", DEFAULT_HF_MODEL).strip()
+    """Hugging Face se configurado (``WASTE_HF_MODEL``) e acessível; senão o modelo local. None se nenhum existir.
+
+    Sem ``WASTE_HF_MODEL``, nem tenta: abrir o sistema não depende de internet (e não espera por ela)."""
+    model_id = os.environ.get("WASTE_HF_MODEL", "").strip()
     if model_id and model_id.lower() not in ("off", "0", "none"):
         try:
             return HFTextureExpert(model_id, device)

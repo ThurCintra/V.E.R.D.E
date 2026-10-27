@@ -18,9 +18,18 @@ def app(tmp_path, monkeypatch, model_path):
     import src.paths
 
     importlib.reload(src.paths)
+    _reset_engine()
     yield AppTest.from_file(DASHBOARD, default_timeout=120)
+    _reset_engine()  # a IA carrega em segundo plano: espera terminar antes de desfazer o ambiente do teste
     monkeypatch.undo()
     importlib.reload(src.paths)
+
+
+def _reset_engine():
+    import sys
+
+    if "ui" in sys.modules:
+        sys.modules["ui"].reset_engine()
 
 
 def test_abre_na_pagina_analisar_sem_erros(app):

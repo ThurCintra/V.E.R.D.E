@@ -1,19 +1,19 @@
 """Motor de inferência híbrido de 3 estágios para resíduos recicláveis.
 
-1. **Detecção espacial** (rápida): YOLO-World com vocabulário de resíduos (``src/open_vocab.py``), com
-   pré-processamento CLAHE + filtro bilateral (``src/preprocess.py``), filtro de tamanho (ignora o que ocupa mais
-   de 70% da imagem, como paredes e o próprio corpo) e descarte de pessoas. Se o vocabulário não puder ser montado
-   (sem internet na primeira vez), o detector cai para o YOLOE e, por fim, para o YOLOv8 do COCO.
+1. **Detecção espacial** (rápida): YOLOE com vocabulário de resíduos (``src/open_vocab.py``; o modelo pronto vem
+   no repositório) ou, se pedido, YOLO-World; pré-processamento CLAHE opcional (``src/preprocess.py``), filtro de
+   tamanho (ignora o que ocupa mais de 70% da imagem, como paredes e o próprio corpo) e descarte de pessoas. Se o
+   vocabulário não puder ser carregado, o detector cai para o outro e, por fim, para o YOLOv8 do COCO.
 2. **Especialista de textura** (``src/material_classifier.py``): classifica o recorte de cada objeto; o resultado
    é combinado com o detector (40% forma, 60% textura).
-3. **Estabilização temporal** (vídeo, ``track``): o ByteTrack (pacote ``trackers``, sobre o ``supervision``) dá um ``tracker_id`` a cada objeto, a votação por
-   EMA dos últimos 12 quadros impede a categoria de piscar e o Deep Scan (``src/deep_scan.py``) dá a palavra
+3. **Estabilização temporal** (vídeo, ``track``): o ByteTrack (pacote ``trackers``, sobre o ``supervision``) dá
+   um ``tracker_id`` a cada objeto, a votação por EMA dos últimos 12 quadros impede a categoria de piscar e o Deep Scan (``src/deep_scan.py``) dá a palavra
    final em objetos duvidosos parados no centro (ou em todos, se pedido).
 
 Modos de operação: ``rapido`` (só o estágio 1), ``alta`` (1 + 2) e ``ultra`` (1 + 2 + Deep Scan).
 
-Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``yolo-world``, ``yoloe``
-ou ``coco``), ``WASTE_MODEL`` (um peso específico), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_TTA=1``,
+Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``yoloe``, o padrão,
+``yolo-world`` ou ``coco``), ``WASTE_MODEL`` (um peso específico), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_TTA=1``,
 ``WASTE_PREPROCESS=1`` (liga o CLAHE), ``WASTE_MATERIAL_MODEL`` (``off`` desliga o estágio 2), ``WASTE_HF_MODEL`` e
 ``WASTE_MATERIAL_CONF``.
 """
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass, replace
@@ -29,7 +30,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 from src.material import REFINABLE_LABELS, crop
 from src.material_classifier import (
@@ -109,8 +109,13 @@ def default_model_path() -> Path:
     return CUSTOM_MODEL if CUSTOM_MODEL.is_file() else DEFAULT_MODEL
 
 
-def _load_detector(model_path, kind: str) -> tuple[YOLO, Path, str | None]:
-    """(modelo, caminho, aviso). Sem peso explícito: vocabulário aberto pedido → o outro → treinado/COCO."""
+def _load_detector(model_path, kind: str):
+    """(modelo, caminho, aviso). Sem peso explícito: vocabulário aberto pedido → o outro → treinado/COCO.
+
+    O ``ultralytics`` (e o torch) só é importado aqui: importar este módulo fica leve, e as páginas do dashboard
+    que não usam IA abrem sem esperar por ele."""
+    from ultralytics import YOLO
+
     if model_path:
         path = resolve(model_path)
         if not path.is_file():
@@ -119,7 +124,7 @@ def _load_detector(model_path, kind: str) -> tuple[YOLO, Path, str | None]:
     if CUSTOM_MODEL.is_file():
         return YOLO(str(CUSTOM_MODEL)), CUSTOM_MODEL, None
     errors = []
-    candidates = [] if kind == "coco" else list(dict.fromkeys(k for k in (kind, "yolo-world", "yoloe")
+    candidates = [] if kind == "coco" else list(dict.fromkeys(k for k in (kind, "yoloe", "yolo-world")
                                                               if k in ("yolo-world", "yoloe")))
     for candidate in candidates:
         try:
@@ -147,7 +152,7 @@ class Detector:
         material_model: str | Path | None = "auto",
         material_conf: float = 0.6,
         mode: str = "alta",
-        detector_kind: str = "yolo-world",
+        detector_kind: str = "yoloe",
         preprocess: bool = False,
         min_area: float = 0.0005,
         max_area: float = 0.70,
@@ -176,10 +181,16 @@ class Detector:
             self.texture = LocalTextureExpert(material_model, device) if material_model else None
         self._deep_scanner_arg = deep_scanner
         self._scanner = None
+        # O modelo do YOLO não pode ser usado por duas threads ao mesmo tempo (duas abas do dashboard, ou a API
+        # atendendo dois pedidos): as análises entram uma de cada vez.
+        self._lock = threading.RLock()
         self.reset_tracking()
 
     @classmethod
     def from_env(cls) -> "Detector":
+        from src.deep_scan import load_env
+
+        load_env()  # WASTE_DETECTOR, WASTE_HF_MODEL etc. também valem quando escritos no .env
         material = os.environ.get("WASTE_MATERIAL_MODEL", "auto")
         return cls(
             model_path=os.environ.get("WASTE_MODEL") or None,
@@ -189,7 +200,7 @@ class Detector:
             material_model=None if material.lower() in ("off", "0", "none") else material,
             material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.6")),
             mode=os.environ.get("WASTE_MODE", "alta"),
-            detector_kind=os.environ.get("WASTE_DETECTOR", "yolo-world"),
+            detector_kind=os.environ.get("WASTE_DETECTOR", "yoloe"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
         )
 
@@ -261,7 +272,10 @@ class Detector:
         ``whole_image_fallback``: sem ``single_item``, se nenhum resíduo for achado, tenta a foto inteira (fotos de
         perto). O vídeo desliga isso: num quadro vazio da câmera, não há nada a achar.
         """
-        image = load_image(image)
+        with self._lock:
+            return self._detect(load_image(image), waste_only, single_item, whole_image_fallback)
+
+    def _detect(self, image: np.ndarray, waste_only: bool, single_item: bool, whole_image_fallback: bool):
         h, w = image.shape[:2]
         clip = self.calibration.clip_limit if self.calibration else 2.0
         source = enhance(image, clip) if self.preprocess else image
@@ -367,11 +381,15 @@ class Detector:
     def track(self, frame: np.ndarray, timestamp: float | None = None) -> list[Detection]:
         """Detecta e rastreia num quadro de vídeo: cada objeto ganha um ``tracker_id``, categoria estável
         (EMA de 12 quadros), caixa suavizada e, no modo ultra, o veredito do Deep Scan."""
+        with self._lock:
+            return self._track(frame, timestamp)
+
+    def _track(self, frame: np.ndarray, timestamp: float | None) -> list[Detection]:
         import supervision as sv
 
         t = time.monotonic() if timestamp is None else timestamp
         h, w = frame.shape[:2]
-        detections = self.detect(frame, waste_only=True, whole_image_fallback=False)
+        detections = self._detect(frame, True, False, False)
         if detections:
             tracked = self.tracker.update(
                 sv.Detections(

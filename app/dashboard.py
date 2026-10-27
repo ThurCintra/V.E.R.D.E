@@ -17,6 +17,7 @@ import ui  # noqa: E402
 
 st.set_page_config(page_title="V.E.R.D.E.", page_icon="♻️", layout="wide", initial_sidebar_state="collapsed")
 ui.style()
+ui.start_engine()  # a IA carrega em segundo plano enquanto a página já aparece
 st.logo(str(APP / "static" / "logo.svg"), size="large")
 
 page = st.navigation(

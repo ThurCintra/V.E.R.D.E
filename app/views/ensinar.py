@@ -57,7 +57,7 @@ with st.container(border=True):
             bar.progress(1.0, "Pronto")
             if result.accepted:
                 st.success("Pronto! O sistema agora usa o que você ensinou.")
-                ui.get_detector.clear()  # a próxima análise carrega o modelo novo
+                ui.reload_engine()  # o motor recarrega com o modelo novo, em segundo plano
             else:
                 st.warning("O modelo novo não ficou melhor que o atual, então o atual foi mantido. Corrija mais "
                            "exemplos, de objetos variados, e tente de novo.")
@@ -71,5 +71,5 @@ with st.container(border=True):
 if previous_model_path().is_file():
     if st.button("↩️ Voltar ao modelo anterior", help="Desfaz o último treino."):
         restore_previous()
-        ui.get_detector.clear()
+        ui.reload_engine()
         st.success("Modelo anterior restaurado.")

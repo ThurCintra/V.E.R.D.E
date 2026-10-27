@@ -1,0 +1,11 @@
+# Opcionais (iniciar extras). Sem eles o sistema funciona igual, com os planos B locais.
+
+# Especialista de textura do Hugging Face (WASTE_HF_MODEL no .env)
+transformers>=4.45
+timm>=1.0
+
+# Deep Scan com o Gemini (GEMINI_API_KEY no .env)
+google-genai>=1.0
+
+# YOLO-World (WASTE_DETECTOR=yolo-world): o CLIP monta o vocabulário (baixa ~340 MB na primeira vez)
+clip @ https://github.com/ultralytics/CLIP/archive/refs/heads/main.zip

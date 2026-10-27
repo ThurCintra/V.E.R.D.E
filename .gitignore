@@ -10,3 +10,4 @@ datasets/
 *.db-*
 models/*.ts
 .env
+!models/verde_yoloe.pt

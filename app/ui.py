@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import threading
+import time
 from dataclasses import replace
 
 import cv2
@@ -13,7 +16,7 @@ import streamlit as st
 from src import paths
 from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
 from src.database import Database
-from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate
+from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate  # leve: o torch só carrega no motor
 from src.hardware_controller import HardwareController, choose_action, controller_from_env
 from src.material import crop
 from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
@@ -27,17 +30,102 @@ DEFAULTS = {
 }
 MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
 MODE_HELP = {
-    "rapido": "Só o detector (YOLO-World). O mais rápido, bom para vídeo ao vivo num PC simples.",
+    "rapido": "Só o detector (YOLOE). O mais rápido, bom para vídeo ao vivo num PC simples.",
     "alta": "Detector + especialista de textura (40% forma, 60% textura). Separa PET de vidro, lata de copo.",
     "ultra": "Alta precisão + Deep Scan: objetos duvidosos ganham uma segunda análise detalhada "
              "(Gemini, se houver GEMINI_API_KEY; senão, análise local de 8 variações do recorte).",
 }
 
 
+# ---------------------------------------------------------------- motor de IA (carregado em segundo plano)
+# Carregar o torch, os modelos e fazer a primeira análise leva de alguns segundos a mais de um minuto (disco frio,
+# antivírus). O motor carrega numa thread assim que o dashboard abre; as páginas aparecem na hora e só esperam por
+# ele quando vão analisar algo. Fica no módulo (não no st.session_state): é um só por servidor.
+log = logging.getLogger(__name__)
+_engine: dict = {"detector": None, "error": None, "thread": None, "started": 0.0, "seconds": None}
+_engine_lock = threading.Lock()
+
+
+def _load_engine() -> None:
+    started = time.monotonic()
+    try:
+        det = Detector.from_env()
+        _warm_up(det)
+        _engine["detector"] = det
+    except Exception as err:  # mostrado na página quando alguém for analisar
+        log.exception("Falha ao carregar o motor")
+        _engine["error"] = err
+    _engine["seconds"] = time.monotonic() - started
+
+
+def _warm_up(det: Detector) -> None:
+    """A primeira análise de um modelo é ~25x mais lenta (preparação interna do PyTorch): faz uma de aquecimento
+    com a foto de exemplo, para a primeira do usuário já sair rápida."""
+    example = paths.DATA_DIR / "mesa_garrafas_banana.jpg"
+    if example.is_file():
+        det.detect(example, waste_only=True)
+        det.detect(example, waste_only=True, single_item=True)
+
+
+def start_engine() -> None:
+    """Começa a carregar o motor (uma vez por servidor; não espera)."""
+    with _engine_lock:
+        if _engine["thread"] is None:
+            _engine["started"] = time.monotonic()
+            _engine["thread"] = threading.Thread(target=_load_engine, name="verde-motor", daemon=True)
+            _engine["thread"].start()
+
+
+def engine_ready() -> bool:
+    return _engine["detector"] is not None or _engine["error"] is not None
+
+
+def get_detector(wait: bool = True) -> Detector | None:
+    """O motor. ``wait=False`` devolve None enquanto ele ainda carrega."""
+    start_engine()
+    if not engine_ready():
+        if not wait:
+            return None
+        with st.spinner("Preparando a IA (só acontece logo depois de abrir o V.E.R.D.E.)..."):
+            _engine["thread"].join()
+    if _engine["error"] is not None:
+        raise RuntimeError(f"Não foi possível carregar a IA: {_engine['error']}") from _engine["error"]
+    return _engine["detector"]
+
+
+def reset_engine() -> None:
+    """Espera o carregamento em andamento terminar e descarta o motor (o próximo uso carrega de novo)."""
+    thread = _engine["thread"]
+    if thread is not None:
+        thread.join()
+    with _engine_lock:
+        _engine.update(detector=None, error=None, thread=None, seconds=None)
+
+
+def reload_engine() -> None:
+    """Recarrega o motor em segundo plano (depois de treinar um modelo novo)."""
+    reset_engine()
+    start_engine()
+
+
+def engine_status() -> None:
+    """Selo "IA pronta" / "Preparando a IA…", que se atualiza sozinho enquanto o motor carrega."""
+    if engine_ready():
+        if _engine["error"] is not None:
+            st.error(f"⚠️ A IA não carregou: {_engine['error']}")
+        return
+
+    @st.fragment(run_every=1.0)
+    def waiting():
+        if engine_ready():
+            st.rerun()  # tira o selo e o relógio da página
+        st.caption(f"⏳ Preparando a IA em segundo plano ({time.monotonic() - _engine['started']:.0f} s). "
+                   "Pode ir escolhendo a foto.")
+
+    waiting()
+
+
 # ---------------------------------------------------------------- recursos e configurações
-@st.cache_resource
-def get_detector() -> Detector:
-    return Detector.from_env()
 
 
 @st.cache_resource
@@ -126,7 +214,7 @@ def calibration_panel(current_frame=None) -> None:
         if list(size) != list(cfg["tamanho"]):
             save_setting("tamanho", list(size))
 
-        det = get_detector()
+        det = get_detector(wait=False)
         st.markdown("**Fundo e iluminação**")
         boost = st.toggle("Realce de contraste (CLAHE)", value=cfg["realce"],
                           help="Para cenas escuras ou com reflexo. Nos testes, não melhorou fotos bem iluminadas "
@@ -135,13 +223,16 @@ def calibration_panel(current_frame=None) -> None:
             save_setting("realce", boost)
         st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
                    "realce de contraste se ajusta à luz.")
-        if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None):
+        if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None or det is None):
             frame = current_frame() if current_frame else None
             if frame is None:
                 st.warning("Não há imagem da cena para calibrar.")
             else:
                 det.calibrate(frame)
                 st.success(f"Fundo calibrado (realce {det.calibration.clip_limit:.1f}).")
+        if det is None:
+            st.caption("⏳ A IA ainda está carregando.")
+            return
         if det.calibration is not None and st.button("Desfazer calibração", width="stretch"):
             det.calibrate(None)
             st.rerun()

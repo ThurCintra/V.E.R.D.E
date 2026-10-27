@@ -52,6 +52,7 @@ def test_ensemble_40_forma_60_textura():
 # ---------------------------------------------------------------- especialista do Hugging Face
 def tiny_vit(labels):
     """ViT minúsculo, criado na hora (sem download), para testar o caminho do transformers."""
+    pytest.importorskip("transformers", reason="extra opcional (iniciar extras)")
     from transformers import ViTConfig, ViTForImageClassification, ViTImageProcessor
 
     config = ViTConfig(
@@ -248,6 +249,8 @@ def test_deep_scan_em_segundo_plano_e_fallback_quando_o_gemini_falha():
 
 
 def test_gemini_com_resposta_estruturada():
+    pytest.importorskip("google.genai", reason="extra opcional (iniciar extras)")
+
     class FakeModels:
         def generate_content(self, model, contents, config):
             self.model, self.contents, self.config = model, contents, config
@@ -268,3 +271,15 @@ def test_sem_chave_do_gemini_o_deep_scan_e_local(monkeypatch, tmp_path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setattr("src.deep_scan.ROOT", tmp_path)  # sem .env
     assert DeepScanner(FakeTexture()).backend == "local"
+
+
+def test_duas_analises_ao_mesmo_tempo_dao_o_mesmo_resultado(model_path, coco_samples):
+    """Duas abas do dashboard (ou dois pedidos da API) usando o mesmo motor ao mesmo tempo."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    detector = Detector(model_path, material_model=None)
+    images = [cv2.imread(str(coco_samples[k])) for k in ("vinho", "garrafas_banana")] * 4
+    expected = [[(d.label, d.category) for d in detector.detect(img, waste_only=True)] for img in images]
+    with ThreadPoolExecutor(4) as pool:
+        got = list(pool.map(lambda img: [(d.label, d.category) for d in detector.detect(img, waste_only=True)], images))
+    assert got == expected

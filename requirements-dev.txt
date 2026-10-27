@@ -1,0 +1,4 @@
+# Para rodar os testes (iniciar testes)
+-r requirements.txt
+pytest>=8
+httpx2>=2.16

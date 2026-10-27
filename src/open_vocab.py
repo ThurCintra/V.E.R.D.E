@@ -44,6 +44,9 @@ IGNORED_VOCABULARY = ["person", "human face", "human hand"]
 VOCAB_CATEGORY = dict(WASTE_VOCABULARY)
 PROMPTS = [p for p, _ in WASTE_VOCABULARY] + IGNORED_VOCABULARY
 
+# O YOLOE é o padrão: o modelo com o vocabulário já vem no repositório (models/verde_yoloe.pt), então não
+# precisa baixar codificador de texto nenhum, e foi o único dos dois medido (89,5% no modo normal do teste do
+# TrashNet). O YOLO-World (WASTE_DETECTOR=yolo-world) baixa o CLIP (~340 MB) na primeira vez.
 KINDS = {
     "yolo-world": ("yolov8s-worldv2.pt", "verde_yoloworld.pt"),
     "yoloe": ("yoloe-11s-seg.pt", "verde_yoloe.pt"),
@@ -77,14 +80,35 @@ def build_vocabulary_model(kind: str, prompts: list[str] = PROMPTS) -> Path:
     return out
 
 
-def load_open_vocab(kind: str):
-    """O modelo com vocabulário de resíduos, montando-o se preciso. Devolve (YOLO, caminho)."""
+def failure_marker(kind: str) -> Path:
+    return MODELS_DIR / f".{kind}_falhou"
+
+
+def load_open_vocab(kind: str, retry: bool = False):
+    """O modelo com vocabulário de resíduos, montando-o se preciso. Devolve (YOLO, caminho).
+
+    Se montar já falhou antes (sem internet, codificador bloqueado), não tenta de novo a cada abertura, o que
+    custava segundos (ou mais, sem internet) toda vez: ``retry=True`` (``iniciar verificar``) tenta outra vez.
+    """
     from ultralytics import YOLO
 
     path = vocabulary_model_path(kind)
-    if not path.is_file() or list(YOLO(str(path)).names.values()) != PROMPTS:
-        log.info("Montando o vocabulário de resíduos do %s (só na primeira vez)...", kind)
+    if path.is_file():
+        model = YOLO(str(path))
+        if list(model.names.values()) == PROMPTS:
+            return model, path
+    marker = failure_marker(kind)
+    if marker.is_file() and not retry:
+        raise RuntimeError(f"a montagem do {kind} falhou antes ({marker.read_text(encoding='utf-8')}); "
+                           "rode 'iniciar verificar' para tentar de novo")
+    log.info("Montando o vocabulário de resíduos do %s (só na primeira vez)...", kind)
+    try:
         build_vocabulary_model(kind)
+    except Exception as err:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"{type(err).__name__}: {err}"[:300], encoding="utf-8")
+        raise
+    marker.unlink(missing_ok=True)
     return YOLO(str(path)), path
 
 
