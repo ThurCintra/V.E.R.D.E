@@ -134,11 +134,31 @@ class RetrainResult:
 
 
 def _link(src: Path, dest: Path) -> None:
+    """Põe ``src`` em ``dest`` sem ocupar espaço (hard link) ou, se não der, copiando."""
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        if os.path.samefile(src, dest):
+            return  # já é o mesmo arquivo (sobra de um treino anterior): aproveita
+        dest.unlink()
     try:
         os.link(src, dest)
     except OSError:  # outro disco, ou sistema de arquivos sem hard link
         shutil.copyfile(src, dest)
+
+
+def _fresh_work_dir(root: Path) -> Path:
+    """Uma pasta nova por treino. No Windows, um arquivo aberto (pelo dashboard, pelo antivírus) não pode ser
+    apagado: reaproveitar a mesma pasta fazia o 2º treino tropeçar nas sobras do 1º. As antigas são apagadas
+    quando possível; se alguma estiver presa, fica para a próxima."""
+    if root.is_dir():
+        for old in root.iterdir():
+            if old.is_dir():
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                old.unlink(missing_ok=True)
+    work = root / datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    work.mkdir(parents=True)
+    return work
 
 
 def _category_accuracy(model_path: Path, items: list[tuple[Path, str]]) -> float | None:
@@ -190,8 +210,7 @@ def retrain(
     trashnet = Path(trashnet_dir) if trashnet_dir else prepare_trashnet()
     train_items, holdout = split_holdout(items)
 
-    work = Path(work_dir) if work_dir else DATASETS_DIR / "retreino"
-    shutil.rmtree(work, ignore_errors=True)
+    work = _fresh_work_dir(Path(work_dir) if work_dir else DATASETS_DIR / "retreino")
     for split in ("train", "val"):
         for img, cls in labeled_images(trashnet / split):
             _link(img, work / split / cls / img.name)
