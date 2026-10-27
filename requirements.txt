@@ -3,6 +3,7 @@
 
 # Visão computacional
 ultralytics>=8.3,<9
+openvino>=2024.0      # acelera o detector na CPU (mesmas detecções); WASTE_OPENVINO=0 desliga
 numpy>=1.26
 opencv-python>=4.9
 
