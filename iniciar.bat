@@ -49,25 +49,9 @@ if /i "%~1"=="api" goto api
 if /i "%~1"=="testes" goto testes
 if /i "%~1"=="extras" goto extras
 if /i "%~1"=="verificar" goto verificar
-if /i "%~1"=="tudo" call :instalar
-rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
-if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
-if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
-if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
-"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
-exit /b %errorlevel%
-
-:liberar_porta 8000 uvicorn
+if /i "%~1"=="tudo" call :liberar_porta 8000 uvicorn
 if /i "%~1"=="tudo" start "V.E.R.D.E. - API" "%VENV_PY%" -m uvicorn src.api:app --port 8000
-call :instalar
-rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
-if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
-if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
-if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
-"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
-exit /b %errorlevel%
-
-:liberar_porta 8501 streamlit
+call :liberar_porta 8501 streamlit
 
 echo.
 echo [V.E.R.D.E.] Dashboard em http://localhost:8501  -  para parar, feche esta janela ou aperte Ctrl+C
@@ -77,15 +61,7 @@ goto fim
 
 :api
 echo.
-call :instalar
-rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
-if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
-if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
-if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
-"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
-exit /b %errorlevel%
-
-:liberar_porta 8000 uvicorn
+call :liberar_porta 8000 uvicorn
 echo [V.E.R.D.E.] API em http://localhost:8000/docs  -  para parar, feche esta janela ou aperte Ctrl+C
 "%VENV_PY%" -m uvicorn src.api:app --port 8000
 goto fim
