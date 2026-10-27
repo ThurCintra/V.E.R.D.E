@@ -26,7 +26,7 @@ class FrameResult:
     index: int
     detections: list[Detection]  # com tracker_id
     new_items: list[Detection]  # objetos contados pela primeira vez neste quadro
-    annotated: np.ndarray
+    annotated: np.ndarray | None  # None com draw=False (a câmera ao vivo desenha na hora de mostrar)
 
     @property
     def track_ids(self) -> list[int]:
@@ -55,7 +55,7 @@ class WastePipeline:
         self._index = 0
         detector.reset_tracking()
 
-    def process_frame(self, frame: np.ndarray, timestamp: float | None = None) -> FrameResult:
+    def process_frame(self, frame: np.ndarray, timestamp: float | None = None, draw: bool = True) -> FrameResult:
         detections = self.detector.track(frame, timestamp)
         if self.review:
             self.review.maybe_save(frame, detections, self.source)
@@ -71,7 +71,7 @@ class WastePipeline:
                 self.db.add(det.label, det.category, det.confidence, det.weight_g, self.source, det.tracker_id)
             if self.controller:
                 self.controller.actuate(det.category)
-        annotated = annotate(frame, detections, [d.tracker_id for d in detections], compact=True)
+        annotated = annotate(frame, detections, [d.tracker_id for d in detections], compact=True) if draw else None
         result = FrameResult(self._index, detections, new_items, annotated)
         self._index += 1
         return result

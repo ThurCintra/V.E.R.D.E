@@ -1,6 +1,7 @@
 """Página principal: enviar ou tirar uma foto (ou vídeo) e ver em qual lixeira vai cada item."""
 
 import tempfile
+import time
 from pathlib import Path
 
 import cv2
@@ -8,11 +9,13 @@ import streamlit as st
 
 import ui
 from src.detector import load_image
+from src.live import LiveSession
 from src.paths import DATA_DIR
 from src.pipeline import WastePipeline
 from src.recycling import CATEGORIES, label_pt
 
 EXAMPLE = DATA_DIR / "mesa_garrafas_banana.jpg"
+DISPLAY_FPS = 20  # a tela da câmera contínua; a análise roda no ritmo dela, em paralelo
 SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
 
 ui.hero("Analisar resíduos", "Envie ou tire uma foto: o V.E.R.D.E. mostra em qual lixeira vai cada item.")
@@ -63,7 +66,7 @@ def analyze_video(data: bytes, name: str) -> None:
         for result in pipeline.process_video(tmp.name, every_n=every_n):
             progress.progress(min(1.0, (result.index + 1) * every_n / total), "Analisando...")
             if result.index % 5 == 0 or result.new_items:
-                frame_slot.image(ui.rgb(result.annotated), width="stretch")
+                frame_slot.image(ui.rgb(result.annotated), width="stretch", output_format="JPEG")
         progress.progress(1.0, "Pronto")
     counts = {name: pipeline.counts.get(name, 0) for name in CATEGORIES}
     st.markdown(f"#### {sum(counts.values())} itens no vídeo (cada objeto contado uma vez)")
@@ -72,9 +75,44 @@ def analyze_video(data: bytes, name: str) -> None:
         st.success("Registrado! Os números aparecem em **Meu impacto**.")
 
 
+def live_loop(session: LiveSession, frame_slot, counts_slot, items_slot) -> None:
+    """Mostra a câmera a ~20 quadros por segundo com as caixas da última análise (que roda em paralelo) e
+    atualiza a lista ao lado uma vez por segundo."""
+    last_list = 0.0
+    while True:
+        started = time.monotonic()
+        view = session.view()
+        if view is not None:
+            frame_slot.image(ui.rgb(view), width="stretch", output_format="JPEG")
+        if session.error:
+            st.error(f"A análise parou: {session.error}")
+            return
+        if not session.running:
+            st.info("A câmera parou de enviar imagens.")
+            return
+        now = time.monotonic()
+        if now - last_list >= 1.0:
+            last_list = now
+            result, counts = session.result, session.pipeline.counts
+            with counts_slot.container():
+                st.markdown("**Contados até agora** (cada objeto uma vez)")
+                ui.chips({name: counts.get(name, 0) for name in CATEGORIES})
+                st.caption(f"Analisando {session.analysis_fps:.0f} quadros por segundo")
+            with items_slot.container():
+                for d in result.detections if result else []:
+                    st.markdown(
+                        f"**#{d.tracker_id} {label_pt(d.label).capitalize()}** · {ui.EMOJI[d.category]} "
+                        f"{d.category}" + ui.prob_bar(d) + ui.scan_note(d), unsafe_allow_html=True,
+                    )
+        time.sleep(max(0.0, 1 / DISPLAY_FPS - (time.monotonic() - started)))
+
+
 def current_frame():
     """O quadro para "Zerar fundo": da câmera contínua, ou a última foto analisada."""
     if source == SOURCES[2]:
+        session = st.session_state.get("sessao_ao_vivo")
+        if session is not None and session.running:  # a câmera já está aberta pela análise
+            return session.reader.latest()[1]
         cap = cv2.VideoCapture(int(cam) if cam.isdigit() else cam)
         ok, frame = cap.read()
         cap.release()
@@ -128,22 +166,20 @@ else:
     if running:
         controller = ui.get_controller() if cfg["comportas"] else None
         pipeline = WastePipeline(ui.detector(), db=ui.db(), controller=controller, source="ao-vivo", review=ui.review())
+        old = st.session_state.pop("sessao_ao_vivo", None)
+        if old is not None:  # de uma execução anterior da página que não terminou direito
+            old.stop()
         try:
-            # O loop termina quando a chave é desligada: o Streamlit reexecuta a página
-            for result in pipeline.process_video(int(cam) if cam.isdigit() else cam, every_n=1):
-                frame_slot.image(ui.rgb(result.annotated), width="stretch")
-                with counts_slot.container():
-                    st.markdown("**Contados até agora** (cada objeto uma vez)")
-                    ui.chips({name: pipeline.counts.get(name, 0) for name in CATEGORIES})
-                if result.index % 3 == 0:  # a lista não precisa mudar a cada quadro
-                    with items_slot.container():
-                        for d in result.detections:
-                            st.markdown(
-                                f"**#{d.tracker_id} {label_pt(d.label).capitalize()}** · {ui.EMOJI[d.category]} "
-                                f"{d.category}" + ui.prob_bar(d) + ui.scan_note(d), unsafe_allow_html=True,
-                            )
+            session = LiveSession(pipeline, cam)
         except ValueError:
             st.error("Não consegui abrir essa câmera. Confira se ela está ligada ou tente outro número.")
+        else:
+            st.session_state["sessao_ao_vivo"] = session
+            try:
+                live_loop(session, frame_slot, counts_slot, items_slot)
+            finally:  # a chave desligada reexecuta a página e interrompe o loop: a câmera é liberada aqui
+                session.stop()
+                st.session_state.pop("sessao_ao_vivo", None)
     else:
         frame_slot.caption("Ligue a chave para começar. Os números na imagem acompanham cada objeto enquanto ele "
                            "estiver na frente da câmera.")

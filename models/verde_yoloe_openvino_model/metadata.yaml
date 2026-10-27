@@ -1,0 +1,77 @@
+description: 'Ultralytics YOLOe-11s-seg model trained on {''train'': {''yolo_data'':
+  [''Objects365v1.yaml''], ''grounding_data'': [{''img_path'': ''../datasets/flickr/full_images/'',
+  ''json_file'': ''../datasets/flickr/annotations/final_flickr_separateGT_train_segm.json''},
+  {''img_path'': ''../datasets/mixed_grounding/gqa/images'', ''json_file'': ''../datasets/mixed_grounding/annotations/final_mixed_train_no_coco_segm.json''}]},
+  ''val'': {''yolo_data'': [''lvis.yaml'']}}'
+author: Ultralytics
+date: '2026-10-27T18:31:29.848674+00:00'
+version: 8.4.188
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: segment
+head: YOLOESegment
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: plastic bottle
+  1: pet bottle
+  2: plastic cup
+  3: plastic bag
+  4: plastic container
+  5: plastic lid
+  6: bottle cap
+  7: plastic wrapper
+  8: styrofoam
+  9: plastic straw
+  10: detergent bottle
+  11: yogurt cup
+  12: cardboard box
+  13: cardboard
+  14: paper
+  15: newspaper
+  16: magazine
+  17: paper cup
+  18: paper bag
+  19: egg carton
+  20: milk carton
+  21: juice carton
+  22: book
+  23: crumpled paper
+  24: aluminum can
+  25: soda can
+  26: tin can
+  27: food can
+  28: metal lid
+  29: aerosol can
+  30: aluminum foil
+  31: metal scrap
+  32: glass bottle
+  33: wine bottle
+  34: beer bottle
+  35: glass jar
+  36: drinking glass
+  37: broken glass
+  38: food waste
+  39: banana peel
+  40: fruit
+  41: apple core
+  42: vegetable
+  43: leftover food
+  44: cigarette butt
+  45: used tissue
+  46: diaper
+  47: person
+  48: human face
+  49: human hand
+args:
+  data: null
+  batch: 1
+  fraction: 1.0
+  quantize: null
+  nms: null
+  dynamic: true
+channels: 3
+end2end: false

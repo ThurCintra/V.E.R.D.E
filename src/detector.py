@@ -32,6 +32,7 @@ import cv2
 import numpy as np
 
 from src.material import REFINABLE_LABELS, crop
+from src import accel
 from src.material_classifier import (
     SHAPE_WEIGHT,
     TEXTURE_WEIGHT,
@@ -53,6 +54,7 @@ log = logging.getLogger(__name__)
 MODES = {"rapido": "Rápido", "alta": "Alta precisão", "ultra": "Ultra precisão"}
 DEEP_SCAN_RANGE = (0.35, 0.60)  # confiança "duvidosa" que dispara o Deep Scan automático
 BACKGROUND_MIN_CHANGE = 0.15  # com o fundo calibrado, caixas com menos de 15% de mudança são o próprio fundo
+TEXTURE_EVERY = 5  # no vídeo, o especialista de textura revê cada objeto a cada 5 quadros
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,12 @@ def default_model_path() -> Path:
     return CUSTOM_MODEL if CUSTOM_MODEL.is_file() else DEFAULT_MODEL
 
 
+def _accelerate(model, path: Path):
+    """O mesmo modelo rodando no OpenVINO, se ele estiver exportado ao lado do .pt; senão o próprio ``model``."""
+    fast = accel.load_openvino(accel.openvino_dir(path), model.task, list(model.names.values()))
+    return (fast, "openvino") if fast is not None else (model, "pytorch")
+
+
 def _load_detector(model_path, kind: str):
     """(modelo, caminho, aviso). Sem peso explícito: vocabulário aberto pedido → o outro → treinado/COCO.
 
@@ -162,7 +170,8 @@ class Detector:
         de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima para, no modo de
         1 item por foto, a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
         ocupar."""
-        self.model, self.model_path, self.fallback_note = _load_detector(model_path, detector_kind)
+        model, self.model_path, self.fallback_note = _load_detector(model_path, detector_kind)
+        self.model, self.accelerator = _accelerate(model, self.model_path)
         names = self.model.names
         self.is_coco = len(names) == 80 and names[0] == "person"
         self.is_open_vocab = is_open_vocab(names)
@@ -228,7 +237,7 @@ class Detector:
 
     @property
     def description(self) -> str:
-        stages = [self.backend]
+        stages = [self.backend + (" (OpenVINO)" if self.accelerator == "openvino" else "")]
         if self.texture and self.mode != "rapido":
             stages.append(f"textura ({self.texture.name})")
         if self.mode == "ultra":
@@ -275,12 +284,15 @@ class Detector:
         with self._lock:
             return self._detect(load_image(image), waste_only, single_item, whole_image_fallback)
 
-    def _detect(self, image: np.ndarray, waste_only: bool, single_item: bool, whole_image_fallback: bool):
+    def _detect(self, image: np.ndarray, waste_only: bool, single_item: bool, whole_image_fallback: bool,
+                texture: bool = True):
         h, w = image.shape[:2]
         clip = self.calibration.clip_limit if self.calibration else 2.0
         source = enhance(image, clip) if self.preprocess else image
         result = self.model.predict(
-            source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False
+            source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False,
+            # O YOLOE já faz isso no PyTorch (uma caixa, um rótulo); pelo OpenVINO precisa ser pedido
+            agnostic_nms=self.is_open_vocab,
         )[0]
         names = result.names
         detections = []
@@ -300,9 +312,10 @@ class Detector:
             probs = shape_vote(category, float(p)) if category else None
             detections.append(Detection(label, float(p), box, category, weight, probs=probs))
 
+        if not texture:
+            return detections  # o vídeo aplica a textura por trilha (_track)
         if self.texture and self.mode != "rapido":
             detections = self._ensemble(image, detections)
-        if self.texture and self.mode != "rapido":
             if single_item:
                 detections = self._single_item(image, detections)
             elif whole_image_fallback and not any(d.category for d in detections):
@@ -318,18 +331,21 @@ class Detector:
         No COCO, só os objetos de material ambíguo (garrafa, copo, pote…) passam pela textura: comida e
         eletrônicos já estão certos pelo nome, e o TrashNet não tem essas classes.
         """
-        todo = [i for i, d in enumerate(detections) if d.category and (not self.is_coco or d.label in REFINABLE_LABELS)]
+        todo = [i for i, d in enumerate(detections) if self._refinable(d)]
         predictions = self.texture.predict([crop(image, detections[i].box) for i in todo])
         for i, pred in zip(todo, predictions):
-            det = detections[i]
-            mixed = ensemble(det.probs, pred.probs, *self.weights)
-            category, _ = top(mixed)
-            weight = det.weight_g if category == det.category else DEFAULT_WEIGHT_G[category]
-            detections[i] = replace(
-                det, category=category, weight_g=weight, material=pred.label,
-                material_confidence=pred.confidence, probs=mixed,
-            )
+            detections[i] = self._with_texture(detections[i], pred)
         return detections
+
+    def _refinable(self, det: Detection) -> bool:
+        return bool(det.category) and (not self.is_coco or det.label in REFINABLE_LABELS)
+
+    def _with_texture(self, det: Detection, pred) -> Detection:
+        mixed = ensemble(det.probs, pred.probs, *self.weights)
+        category, _ = top(mixed)
+        weight = det.weight_g if category == det.category else DEFAULT_WEIGHT_G[category]
+        return replace(det, category=category, weight_g=weight, material=pred.label,
+                       material_confidence=pred.confidence, probs=mixed)
 
     def _single_item(self, image: np.ndarray, detections: list[Detection]) -> list[Detection]:
         """Um item por foto: vira uma detecção só, com a categoria que a textura vê na foto inteira.
@@ -377,6 +393,8 @@ class Detector:
             minimum_consecutive_frames=1, high_conf_det_threshold=self.conf,
         )
         self.voter = TemporalVoter()
+        self._textures: dict[int, tuple[object, int]] = {}  # trilha -> (textura, quadro em que foi vista)
+        self._frame = 0
 
     def track(self, frame: np.ndarray, timestamp: float | None = None) -> list[Detection]:
         """Detecta e rastreia num quadro de vídeo: cada objeto ganha um ``tracker_id``, categoria estável
@@ -389,7 +407,7 @@ class Detector:
 
         t = time.monotonic() if timestamp is None else timestamp
         h, w = frame.shape[:2]
-        detections = self._detect(frame, True, False, False)
+        detections = self._detect(frame, True, False, False, texture=False)
         if detections:
             tracked = self.tracker.update(
                 sv.Detections(
@@ -402,11 +420,11 @@ class Detector:
         else:
             tracked = self.tracker.update(sv.Detections.empty())
 
+        pairs = [(detections[int(i)], int(tid)) for tid, i in zip(tracked.tracker_id, tracked.data.get("index", []))
+                 if tid >= 0]  # tid -1: ainda não virou trilha (aparece a partir do quadro seguinte)
+        pairs = self._track_textures(frame, pairs)
         out = []
-        for xyxy, tid, index in zip(tracked.xyxy, tracked.tracker_id, tracked.data.get("index", [])):
-            if tid < 0:
-                continue  # ainda não virou trilha (aparece a partir do quadro seguinte)
-            det, tid = detections[int(index)], int(tid)
+        for xyxy, (det, tid) in zip([b for b, t in zip(tracked.xyxy, tracked.tracker_id) if t >= 0], pairs):
             state = self.voter.update(tid, det.probs or shape_vote(det.category, det.confidence), xyxy, t, (w, h))
             category = state.shown
             weight = det.weight_g if category == det.category else DEFAULT_WEIGHT_G[category]
@@ -426,7 +444,23 @@ class Detector:
                     state.scanned = True
             out.append(det)
         self.voter.end_frame()
+        self._frame += 1
+        for tid in [t for t in self._textures if t not in self.voter.tracks]:
+            del self._textures[tid]
         return out
+
+    def _track_textures(self, frame: np.ndarray, pairs: list[tuple[Detection, int]]) -> list[tuple[Detection, int]]:
+        """Textura por trilha: o material de um objeto não muda de um quadro para o outro, então o especialista
+        olha cada objeto a cada ``TEXTURE_EVERY`` quadros (e na hora em que ele aparece). Entre uma olhada e outra,
+        o voto de textura guardado entra no ensemble com o voto de forma do quadro atual."""
+        if not self.texture or self.mode == "rapido":
+            return pairs
+        stale = [k for k, (det, tid) in enumerate(pairs) if self._refinable(det) and (
+            tid not in self._textures or self._frame - self._textures[tid][1] >= TEXTURE_EVERY)]
+        for k, pred in zip(stale, self.texture.predict([crop(frame, pairs[k][0].box) for k in stale])):
+            self._textures[pairs[k][1]] = (pred, self._frame)
+        return [(self._with_texture(det, self._textures[tid][0]) if self._refinable(det) and tid in self._textures
+                 else det, tid) for det, tid in pairs]
 
 
 def load_image(image: str | Path | bytes | np.ndarray) -> np.ndarray:

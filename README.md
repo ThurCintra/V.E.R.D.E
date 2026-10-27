@@ -28,6 +28,8 @@ src/
   material.py            recorte e classificador local (usado pelo re-treino e pela avaliação)
   recycling.py           categorias, cores, comandos, mapeamento COCO e por nome de classe
   pipeline.py            detecção → rastreamento → histórico → comporta, frame a frame
+  live.py                câmera contínua fluida: leitura, análise e tela em ritmos separados
+  accel.py               detector acelerado com OpenVINO (mesmas detecções, mais rápido na CPU)
   train.py               fine-tuning (TACO, TrashNet, Roboflow ou data.yaml próprio)
   evaluate.py            acurácia, mAP e matrizes de confusão (relatórios em reports/)
   review.py              guarda os casos duvidosos, já rotulados, para revisão humana
@@ -40,6 +42,7 @@ src/
   hardware_controller.py comandos para o microcontrolador (simulado, serial, MQTT)
 app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/views/, peças em app/ui.py
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
+models/verde_yoloe_openvino_model/  o detector YOLOE exportado para OpenVINO (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
 firmware/lixeira/        sketch Arduino/ESP32 das comportas
 scripts/                 download dos modelos, imagens de teste e verificar_modelos.py
@@ -238,6 +241,8 @@ mais.
 | `WASTE_SINGLE_ITEM`    | 0      | 1 = modo lixeira (1 item por foto)                                      |
 | `WASTE_REVIEW`         | 1      | 0 = não guarda casos duvidosos                                          |
 | `WASTE_REVIEW_CONF`    | 0.5    | detecções abaixo dessa confiança vão para revisão                       |
+| `WASTE_OPENVINO`       | 1      | 0 = detector pelo PyTorch em vez do OpenVINO                            |
+| `WASTE_OV_PRECISION`   | f32    | `bf16` = mais rápido em Xeon com AMX, com 98 de 99 fotos iguais         |
 
 ## Corrigindo os erros e re-treinando (botão no dashboard)
 
@@ -315,6 +320,22 @@ Cada objeto ganha um número (`tracker_id`) do **ByteTrack** (pacote `trackers`,
   supera a atual por 10 pontos. Um objeto em que o modelo hesita entre plástico e vidro não fica piscando;
 - **caixa suavizada** por um filtro de Savitzky-Golay (`scipy`), que tira o tremor sem atrasar a caixa;
 - **contagem única:** ele entra no histórico e aciona a comporta uma vez, depois de aparecer em 3 quadros.
+
+### Câmera contínua fluida
+
+A imagem na tela não espera a análise (`src/live.py`): uma thread lê a câmera e guarda só o quadro mais novo,
+outra analisa sempre esse quadro, e a tela mostra ~20 quadros por segundo com as caixas da última análise. A lista
+ao lado muda uma vez por segundo. O que deixa a análise mais rápida, sem mudar o resultado:
+
+- **OpenVINO:** o detector vem exportado em `models/verde_yoloe_openvino_model/` e roda em FP32, com as mesmas
+  detecções do PyTorch (99 de 99 fotos iguais; 93,9% e 89,5% no TrashNet, igual à tabela acima). Se o OpenVINO
+  faltar ou falhar, volta sozinho ao PyTorch;
+- **textura por objeto:** o material de um objeto não muda de um quadro para o outro, então o especialista de
+  textura revê cada objeto rastreado a cada 5 quadros (e assim que ele aparece); a votação de 12 quadros continua;
+- **JPEG em vez de PNG** para mandar as imagens ao navegador (1,5 ms e 41 KB contra 51 ms e 308 KB por quadro).
+
+Medido no servidor de desenvolvimento (CPU, sem placa de vídeo): análise de 146 → 88 ms por quadro; na tela, de
+~5 para ~18 quadros por segundo.
 
 ## Impacto ambiental
 

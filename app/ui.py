@@ -481,7 +481,7 @@ def show_result(image, data_key: str, source: str) -> None:
 
     left, right = st.columns([1.15, 1], gap="large")
     if not detections:
-        left.image(rgb(image), width="stretch")
+        left.image(rgb(image), width="stretch", output_format="JPEG")
         with right:
             st.markdown("### Não encontrei nenhum resíduo")
             st.markdown(
@@ -496,7 +496,8 @@ def show_result(image, data_key: str, source: str) -> None:
                f"-{int(det.deep_scan_all)}")
         detections = _items_with_corrections(image, detections, key)
     with left:
-        st.image(rgb(annotate(image, detections, list(range(1, len(detections) + 1)), compact=True)), width="stretch")
+        boxes = annotate(image, detections, list(range(1, len(detections) + 1)), compact=True)
+        st.image(rgb(boxes), width="stretch", output_format="JPEG")
         if not detections:
             st.info("Você marcou todos os itens como \"não é resíduo\".")
             return
