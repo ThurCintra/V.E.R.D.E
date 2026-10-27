@@ -7,3 +7,5 @@ datasets
 storage
 models/*.pt
 !models/material_cls.pt
+build
+dist

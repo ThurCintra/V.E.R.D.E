@@ -1,0 +1,67 @@
+# Gera o VERDE.exe numa máquina Windows do GitHub e publica o .zip.
+#
+# - Manualmente: aba Actions → "Gerar VERDE.exe (Windows)" → Run workflow. O .zip fica em "Artifacts" da execução.
+# - Com uma tag de versão (git tag v1.0.0 && git push origin v1.0.0): também cria uma Release com o .zip.
+name: Gerar VERDE.exe (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # para anexar o .zip à Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências (PyTorch só de CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pyinstaller
+
+      - name: Preparar os modelos que vão no pacote
+        # O vocabulário de resíduos do YOLO-World é montado aqui (precisa do CLIP e de internet): o .exe recebe o
+        # verde_yoloworld.pt pronto e roda offline, sem o CLIP
+        run: |
+          python scripts/download_model.py
+          python -c "from src.open_vocab import build_vocabulary_model; build_vocabulary_model('yolo-world')"
+          dir models
+
+      - name: Gerar o executável
+        run: pyinstaller desktop/verde.spec --noconfirm --distpath dist --workpath build
+
+      - name: Autoteste do executável
+        # Usa uma pasta de dados temporária para não depender do perfil do runner
+        env:
+          LOCALAPPDATA: ${{ runner.temp }}\verde-check
+          WASTE_HF_MODEL: "off"
+        run: dist\VERDE\VERDE.exe --check
+
+      - name: Compactar
+        shell: pwsh
+        run: |
+          Copy-Item LEIA-ME-WINDOWS.txt dist\VERDE\
+          Compress-Archive -Path dist\VERDE -DestinationPath VERDE-windows.zip
+          "{0:N0} MB" -f ((Get-Item VERDE-windows.zip).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VERDE-windows
+          path: VERDE-windows.zip
+          retention-days: 30
+
+      - name: Publicar na Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VERDE-windows.zip

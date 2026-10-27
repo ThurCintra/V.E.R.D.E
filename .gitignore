@@ -10,3 +10,5 @@ datasets/
 *.db-*
 models/*.ts
 .env
+build/
+dist/

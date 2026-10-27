@@ -1,0 +1,28 @@
+V.E.R.D.E. - Detector de resíduos recicláveis
+=============================================
+
+COMO ABRIR
+1. Extraia o arquivo .zip inteiro para uma pasta (ex.: Documentos\VERDE).
+   Não abra o programa de dentro do .zip: ele precisa da pasta _internal ao lado.
+2. Dê dois cliques em VERDE.exe.
+3. Uma janela preta mostra o progresso e, em alguns segundos, o V.E.R.D.E. abre na
+   própria janela. Para sair, feche a janela do V.E.R.D.E.
+
+Se o Windows mostrar "O Windows protegeu o computador", clique em "Mais informações"
+e depois em "Executar assim mesmo". O aviso aparece porque o programa não tem
+assinatura digital paga, não porque tenha algo errado.
+
+ONDE FICAM OS SEUS DADOS
+Histórico, correções, configurações e modelos ficam em:
+    %LOCALAPPDATA%\VERDE
+(cole isso na barra de endereço do Explorador de Arquivos). Para atualizar o programa,
+basta apagar a pasta antiga e extrair a nova: os seus dados continuam lá.
+
+DEEP SCAN COM O GEMINI (OPCIONAL)
+Crie um arquivo chamado .env ao lado do VERDE.exe (ou em %LOCALAPPDATA%\VERDE) com:
+    GEMINI_API_KEY=sua_chave_aqui
+Sem a chave, o modo Ultra usa a análise local.
+
+REQUISITOS
+Windows 10 ou 11, 64 bits, com 4 GB de RAM ou mais. Funciona sem internet.
+A câmera do computador funciona na página Analisar, em "Ao vivo".
