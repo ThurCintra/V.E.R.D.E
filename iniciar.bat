@@ -4,6 +4,7 @@ rem   iniciar          abre o dashboard
 rem   iniciar api      sobe a API em http://localhost:8000/docs
 rem   iniciar tudo     dashboard + API (a API abre em outra janela)
 rem   iniciar testes   roda os testes automaticos
+rem   iniciar extras   instala os opcionais (Hugging Face, Gemini, YOLO-World)
 rem   iniciar verificar  confere (e baixa) os modelos do motor de precisao
 rem Na primeira vez cria o ambiente e instala as dependencias (alguns minutos).
 setlocal EnableExtensions
@@ -35,7 +36,7 @@ if errorlevel 1 goto falhou
 fc /b requirements.txt .venv\requirements.instalado >nul 2>&1
 if not errorlevel 1 goto modelo
 echo [V.E.R.D.E.] Instalando as dependencias. Na primeira vez leva alguns minutos: nao feche esta janela.
-"%VENV_PY%" -m pip install --disable-pip-version-check -r requirements.txt
+call :instalar requirements.txt
 if errorlevel 1 goto falhou
 copy /y requirements.txt .venv\requirements.instalado >nul
 
@@ -46,20 +47,45 @@ if not exist data\esteira.mp4 "%VENV_PY%" scripts\prepare_data.py
 
 if /i "%~1"=="api" goto api
 if /i "%~1"=="testes" goto testes
+if /i "%~1"=="extras" goto extras
 if /i "%~1"=="verificar" goto verificar
-if /i "%~1"=="tudo" call :liberar_porta 8000 uvicorn
+if /i "%~1"=="tudo" call :instalar
+rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
+if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
+if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
+if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
+"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
+exit /b %errorlevel%
+
+:liberar_porta 8000 uvicorn
 if /i "%~1"=="tudo" start "V.E.R.D.E. - API" "%VENV_PY%" -m uvicorn src.api:app --port 8000
-call :liberar_porta 8501 streamlit
+call :instalar
+rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
+if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
+if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
+if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
+"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
+exit /b %errorlevel%
+
+:liberar_porta 8501 streamlit
 
 echo.
 echo [V.E.R.D.E.] Dashboard em http://localhost:8501  -  para parar, feche esta janela ou aperte Ctrl+C
-start "" /min cmd /c "timeout /t 6 /nobreak >nul && start http://localhost:8501"
-"%VENV_PY%" -m streamlit run app\dashboard.py --server.port 8501 --server.headless true --browser.gatherUsageStats false
+start "" /min "%VENV_PY%" scripts\abrir_navegador.py http://localhost:8501
+"%VENV_PY%" -m streamlit run app\dashboard.py --server.port 8501 --server.headless true --browser.gatherUsageStats false --server.fileWatcherType none
 goto fim
 
 :api
 echo.
-call :liberar_porta 8000 uvicorn
+call :instalar
+rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
+if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
+if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
+if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
+"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
+exit /b %errorlevel%
+
+:liberar_porta 8000 uvicorn
 echo [V.E.R.D.E.] API em http://localhost:8000/docs  -  para parar, feche esta janela ou aperte Ctrl+C
 "%VENV_PY%" -m uvicorn src.api:app --port 8000
 goto fim
@@ -70,7 +96,20 @@ pause
 goto fim
 
 :testes
+fc /b requirements-dev.txt .venv\dev.instalado >nul 2>&1
+if errorlevel 1 call :instalar requirements-dev.txt
+if errorlevel 1 goto falhou
+copy /y requirements-dev.txt .venv\dev.instalado >nul
 "%VENV_PY%" -m pytest
+goto fim
+
+:extras
+echo [V.E.R.D.E.] Instalando os extras (Hugging Face, Gemini, YOLO-World)...
+call :instalar requirements-extras.txt
+if errorlevel 1 goto falhou
+echo.
+echo [V.E.R.D.E.] Extras instalados. Configure o arquivo .env (veja o .env.example) e rode: iniciar verificar
+pause
 goto fim
 
 :falhou
@@ -82,6 +121,14 @@ exit /b 1
 :fim
 endlocal
 exit /b 0
+
+:instalar
+rem Instala %1 com o uv (bem mais rapido que o pip); se o uv nao der certo, usa o pip.
+if not exist ".venv\Scripts\uv.exe" "%VENV_PY%" -m pip install --disable-pip-version-check -q uv
+if exist ".venv\Scripts\uv.exe" ".venv\Scripts\uv.exe" pip install --python "%VENV_PY%" -r %1
+if exist ".venv\Scripts\uv.exe" if not errorlevel 1 exit /b 0
+"%VENV_PY%" -m pip install --disable-pip-version-check -r %1
+exit /b %errorlevel%
 
 :liberar_porta
 rem Encerra uma copia antiga do V.E.R.D.E. (streamlit ou uvicorn) que ainda esteja usando a porta %1.

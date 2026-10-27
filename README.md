@@ -56,18 +56,36 @@ Dentro da pasta do projeto, um comando só. Na primeira vez ele cria o ambiente,
 | `.\iniciar api`                           | `./iniciar.sh api`       | sobe a API (`:8000/docs`)       |
 | `.\iniciar tudo`                          | `./iniciar.sh tudo`      | dashboard + API                 |
 | `.\iniciar testes`                        | `./iniciar.sh testes`    | roda os testes                  |
+| `.\iniciar verificar`                     | `./iniciar.sh verificar` | confere (e baixa) os modelos    |
+| `.\iniciar extras`                        | `./iniciar.sh extras`    | instala os opcionais            |
 
-No Windows, se o Python não estiver instalado, o `iniciar` instala o Python 3.12 pelo `winget`.
+No Windows, se o Python não estiver instalado, o `iniciar` instala o Python 3.12 pelo `winget`. As dependências
+são instaladas com o [`uv`](https://github.com/astral-sh/uv) (com o pip como plano B), que baixa e instala em
+paralelo: aqui, o mesmo conjunto de pacotes levou 51 s contra 77 s do pip.
+
+**Abertura rápida:** a página aparece em ~2 s e a IA carrega em segundo plano (um selo "Preparando a IA…" mostra
+o progresso); a primeira análise já sai rápida porque o motor faz uma análise de aquecimento. Medido aqui: página
+pronta em 2 s (antes 16 s), IA pronta em 7 a 9 s.
+
+**Primeira abertura do dia mais lenta no Windows?** O antivírus inspeciona cada um dos milhares de arquivos do
+Python na primeira leitura. Se você confia nesta pasta, adicionar uma exclusão no Windows Defender acelera bastante
+(PowerShell como administrador): `Add-MpPreference -ExclusionPath "$HOME\Desktop\V.E.R.D.E"`. É uma troca de
+segurança por velocidade: só faça em uma pasta cujo conteúdo você conhece.
+
+**Dependências:** `requirements.txt` tem o essencial (o sistema completo, com os planos B locais).
+`requirements-extras.txt` tem os opcionais: o especialista do Hugging Face (`transformers`, `timm`), o Gemini
+(`google-genai`) e o YOLO-World (`clip`). `requirements-dev.txt` tem o necessário para os testes.
 
 ## Instalação manual
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python scripts/download_model.py       # models/yolov8s.pt
+pip install -r requirements.txt        # ou: uv pip install -r requirements.txt (mais rápido)
+pip install -r requirements-extras.txt # opcional: Hugging Face, Gemini, YOLO-World
+python scripts/download_model.py       # models/yolov8s.pt (plano B do detector)
 python scripts/prepare_data.py         # imagens e vídeo de teste em data/
-pytest
+pip install -r requirements-dev.txt && pytest
 ```
 
 ```bash
@@ -79,7 +97,7 @@ streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 
 ```
 foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista de textura ──► 3. Estabilização ──► lixeira
-               YOLO-World + vocabulário      recorte de cada objeto         ByteTrack (id)
+               YOLOE + vocabulário           recorte de cada objeto         ByteTrack (id)
                de resíduos, CLAHE, filtro    ViT do Hugging Face ou         EMA de 12 quadros
                de tamanho, sem pessoas       YOLOv8-cls TrashNet local      Deep Scan (Gemini
                                              40% forma + 60% textura         ou análise local)
@@ -91,13 +109,13 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
 | 🎯 Alta precisão (padrão) | 1 + 2 | uso geral |
 | 🔬 Ultra precisão | 1 + 2 + Deep Scan | quando errar custa caro; objetos duvidosos ganham segunda análise com justificativa |
 
-- **Estágio 1** (`src/open_vocab.py`, `src/preprocess.py`): o YOLO-World procura ~50 descrições de resíduos
+- **Estágio 1** (`src/open_vocab.py`, `src/preprocess.py`): o YOLOE (ou o YOLO-World) procura ~50 descrições de resíduos
   ("aluminum can", "milk carton", "bottle cap"...), cada uma ligada a uma lixeira. Antes, a imagem passa por CLAHE
   no espaço LAB e por um filtro bilateral (reflexos e sombras). Caixas com mais de 70% da imagem (parede, mesa, o
   corpo) e pessoas/mãos são descartadas. **Zerar fundo** no painel guarda a cena vazia: o que for igual a ela é
   ignorado, e o realce se ajusta à luz.
 - **Estágio 2** (`src/material_classifier.py`): cada recorte passa por um classificador de textura. Com
-  `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face) usa o `transformers`; sem ele, ou se
+  `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face; precisa dos extras) usa o `transformers`; sem ele, ou se
   o modelo não puder ser baixado, usa o YOLOv8-cls treinado no TrashNet que vem no repositório. O resultado é
   combinado com o detector: 40% forma, 60% textura.
 - **Estágio 3** (`src/temporal.py`, `src/deep_scan.py`): veja *Rastreamento em vídeo*. No modo Ultra, um objeto
@@ -106,10 +124,12 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
   análise local de 8 variações do recorte. A resposta vem com uma justificativa ("Garrafa PET amassada - Plástico
   reciclável").
 
-**Primeira execução:** o vocabulário do YOLO-World precisa do CLIP (~340 MB, baixado uma vez; depois o modelo com o
-vocabulário fica salvo em `models/verde_yoloworld.pt` e roda offline). Rode `iniciar verificar` para baixar e
-conferir tudo. Planos B automáticos: sem YOLO-World → YOLOE (baixa o MobileCLIP, ~600 MB) → YOLOv8 do COCO; sem
-Hugging Face → classificador local; sem Gemini → análise local.
+**Detector padrão: YOLOE.** O modelo com o vocabulário de resíduos já vem no repositório
+(`models/verde_yoloe.pt`, 28 MB): nada a baixar na primeira vez, e foi o detector medido abaixo. O YOLO-World
+continua disponível (`iniciar extras` e `WASTE_DETECTOR=yolo-world` no `.env`): ele baixa o CLIP (~340 MB) uma vez e
+salva o vocabulário em `models/verde_yoloworld.pt`. Se a montagem falhar, o sistema não tenta de novo a cada
+abertura; `iniciar verificar` tenta outra vez. Planos B automáticos: detector pedido → o outro → YOLOv8 do COCO;
+sem Hugging Face → classificador local; sem Gemini → análise local. Nada disso acessa a internet ao abrir.
 
 ### O que cada estágio rende (medido)
 

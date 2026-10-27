@@ -7,3 +7,4 @@ datasets
 storage
 models/*.pt
 !models/material_cls.pt
+!models/verde_yoloe.pt

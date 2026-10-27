@@ -59,9 +59,12 @@ with st.container(border=True):
 
 with st.container(border=True):
     st.markdown("#### ℹ️ Sobre os modelos")
-    det = ui.get_detector()
+    det = ui.get_detector(wait=False)
+    if det is None:
+        st.caption("⏳ A IA ainda está carregando; volte em instantes.")
+        st.stop()
     st.markdown(
-        f"- Detector de objetos: `{det.model_path.name}`\n"
-        f"- Classificador de material: `{det.material.model_path.name if det.material else 'desligado'}`"
+        f"- Detector de objetos: `{det.model_path.name}` ({det.backend})\n"
+        f"- Especialista de textura: `{det.texture_name or 'desligado'}`"
         + (" (treinado com as suas correções)" if paths.USER_MATERIAL_MODEL.is_file() else "")
     )

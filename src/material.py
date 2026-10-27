@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from ultralytics import YOLO
 
 from src.recycling import category_from_name
 
@@ -37,6 +36,8 @@ class MaterialClassifier:
             raise FileNotFoundError(
                 f"Classificador não encontrado em {self.model_path}. Treine com: python -m src.train trashnet"
             )
+        from ultralytics import YOLO  # pesado (torch): só quando o classificador é usado
+
         self.model = YOLO(str(self.model_path), task="classify")
         self.device = device
         self.imgsz = imgsz

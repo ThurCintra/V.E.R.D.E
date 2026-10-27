@@ -37,41 +37,49 @@ def step(name: str):
 
 @step("Pacotes instalados")
 def _():
-    import google.genai  # noqa: F401
+    import importlib.util
+
     import scipy  # noqa: F401
-    import supervision  # noqa: F401
-    import timm  # noqa: F401
+    import supervision
     import trackers  # noqa: F401
-    import transformers  # noqa: F401
 
-    return "✅", f"supervision {supervision.__version__}, transformers {transformers.__version__}"
+    missing = [m for m in ("transformers", "google.genai", "clip") if importlib.util.find_spec(m.split(".")[0]) is None]
+    if missing:
+        return "⚠️", f"essenciais ok; extras não instalados ({', '.join(missing)}): rode 'iniciar extras' se quiser"
+    return "✅", f"essenciais e extras ok (supervision {supervision.__version__})"
 
 
-@step("Estágio 1: YOLO-World com vocabulário de resíduos")
+@step("Estágio 1: YOLOE com vocabulário de resíduos (padrão)")
 def _():
     from src.open_vocab import load_open_vocab
 
-    model, path = load_open_vocab("yolo-world")
+    model, path = load_open_vocab("yoloe", retry=True)
     return "✅", f"{path.name} com {len(model.names)} descrições de resíduos"
 
 
-@step("Estágio 1 (plano B): YOLOE com vocabulário de resíduos")
+@step("Estágio 1 (opcional): YOLO-World")
 def _():
-    from src.open_vocab import load_open_vocab, vocabulary_model_path
+    import importlib.util
 
-    if vocabulary_model_path("yolo-world").is_file():
-        return "✅", "não é necessário (o YOLO-World está pronto)"
-    model, path = load_open_vocab("yoloe")
-    return "⚠️", f"{path.name} pronto; o sistema usa o YOLOE no lugar do YOLO-World"
+    from src.open_vocab import load_open_vocab
+
+    if importlib.util.find_spec("clip") is None:
+        return "⚠️", "não instalado (opcional): 'iniciar extras' e WASTE_DETECTOR=yolo-world no .env"
+    model, path = load_open_vocab("yolo-world", retry=True)
+    return "✅", f"{path.name} pronto (use WASTE_DETECTOR=yolo-world no .env)"
 
 
 @step("Estágio 2: especialista de textura do Hugging Face")
 def _():
     import os
 
-    from src.material_classifier import DEFAULT_HF_MODEL, HFTextureExpert
+    from src.deep_scan import load_env
+    from src.material_classifier import SUGGESTED_HF_MODEL, HFTextureExpert
 
-    model_id = os.environ.get("WASTE_HF_MODEL", DEFAULT_HF_MODEL)
+    load_env()
+    model_id = os.environ.get("WASTE_HF_MODEL", "").strip()
+    if not model_id:
+        return "⚠️", f"não configurado (opcional): WASTE_HF_MODEL no .env, ex.: {SUGGESTED_HF_MODEL}"
     expert = HFTextureExpert(model_id)
     labels = list(expert.model.config.id2label.values())
     return "✅", f"{model_id}: {', '.join(labels[:8])}"
@@ -97,6 +105,10 @@ def _():
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not key:
         return "⚠️", "sem GEMINI_API_KEY no .env: o Deep Scan usa a análise local (funciona offline)"
+    import importlib.util
+
+    if importlib.util.find_spec("google.genai") is None:
+        return "⚠️", "GEMINI_API_KEY configurada, mas o pacote não: rode 'iniciar extras'"
     image = cv2.imread(str(ROOT / "data" / "trashnet" / "glass_glass101.jpg"))
     result = GeminiClient(key, os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")).scan(image)
     return "✅", f"{result.category}: {result.justification}"

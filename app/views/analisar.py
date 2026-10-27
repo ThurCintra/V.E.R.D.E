@@ -17,6 +17,7 @@ SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
 
 ui.hero("Analisar resíduos", "Envie ou tire uma foto: o V.E.R.D.E. mostra em qual lixeira vai cada item.")
 cfg = ui.settings()
+ui.engine_status()
 
 top_left, top_right = st.columns([2, 1], vertical_alignment="bottom")
 source = top_left.pills("Como você quer analisar?", SOURCES, default=SOURCES[0], required=True, key="fonte")

@@ -14,7 +14,6 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
-from scipy.signal import savgol_filter
 
 HISTORY = 12
 
@@ -77,6 +76,8 @@ class TemporalVoter:
         boxes = np.array(state.boxes)
         if len(boxes) < 5:
             return tuple(boxes[-1])
+        from scipy.signal import savgol_filter  # 0,6 s para importar: só quando há vídeo
+
         window = len(boxes) if len(boxes) % 2 else len(boxes) - 1
         return tuple(float(v) for v in savgol_filter(boxes, window_length=window, polyorder=2, axis=0)[-1])
 
