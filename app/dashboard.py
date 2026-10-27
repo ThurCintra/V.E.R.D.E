@@ -15,7 +15,7 @@ sys.path[:0] = [str(APP.parent), str(APP)]  # src/ e ui.py, de qualquer pasta
 
 import ui  # noqa: E402
 
-st.set_page_config(page_title="V.E.R.D.E.", page_icon="♻️", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="V.E.R.D.E.", page_icon=str(APP / "static" / "icone.png"), layout="wide", initial_sidebar_state="collapsed")
 ui.style()
 ui.start_engine()  # a IA carrega em segundo plano enquanto a página já aparece
 st.logo(str(APP / "static" / "logo.svg"), size="large")
