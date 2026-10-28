@@ -114,3 +114,15 @@ def test_detector_de_uma_classe_vota_pela_frequencia_do_taco(detector):
     from src.detector import AGNOSTIC_LABEL
 
     assert detector._shape_category(AGNOSTIC_LABEL) == ("Plástico", 25)
+
+
+def test_segundo_detector_nao_repete_o_que_o_primeiro_achou(model_path, coco_samples):
+    from src.detector import Detector
+
+    sozinho = Detector(model_path, material_model=None)
+    com_extra = Detector(model_path, material_model=None, extra_model=model_path)  # o mesmo modelo duas vezes
+    for image in coco_samples.values():
+        a = [d.box for d in sozinho.detect(image, waste_only=True)]
+        b = [d.box for d in com_extra.detect(image, waste_only=True)]
+        assert a == b
+    assert com_extra.backend == "coco + residuos"

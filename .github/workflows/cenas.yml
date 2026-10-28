@@ -44,10 +44,25 @@ jobs:
           path: datasets/taco_cenas
           key: taco-cenas-1280-v2
 
+      - name: Modelos candidatos (das branches modelo-taco e modelo-detector-taco, se existirem)
+        run: |
+          git fetch --depth 1 origin modelo-taco modelo-detector-taco || true
+          git show origin/modelo-taco:models/material_cls_taco.pt > models/material_cls_taco.pt 2>/dev/null || rm -f models/material_cls_taco.pt
+          git show origin/modelo-detector-taco:models/residuos_taco.pt > models/residuos_taco.pt 2>/dev/null || rm -f models/residuos_taco.pt
+          ls -la models
+
       - name: Avaliar
         run: |
           set -o pipefail
-          python .github/scripts/scenes_grid.py cenas.md 2>&1 | tee cenas.log
+          kinds="coco yoloe yolo-world"
+          if [ -f models/residuos_taco.pt ]; then kinds="coco taco coco+taco yoloe yolo-world yolo-world+taco"; fi
+          python .github/scripts/scenes_grid.py cenas.md $kinds 2>&1 | tee cenas.log
+          if [ -f models/material_cls_taco.pt ]; then
+            kinds="coco"
+            if [ -f models/residuos_taco.pt ]; then kinds="coco taco coco+taco yolo-world+taco"; fi
+            TEXTURE_MODEL=models/material_cls_taco.pt python .github/scripts/scenes_grid.py textura_taco.md $kinds 2>&1 | tee -a cenas.log
+            { echo; echo "# Com o especialista de textura ajustado no TACO (candidato)"; echo; cat textura_taco.md; } >> cenas.md
+          fi
 
       - name: Publicar o resultado
         if: always()

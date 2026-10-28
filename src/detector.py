@@ -104,6 +104,13 @@ class Detection:
         }
 
 
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - ix * iy
+    return ix * iy / union if union > 0 else 0.0
+
+
 def _containment(a, b) -> float:
     """Quanto da menor das duas caixas está dentro da outra (1: uma está toda dentro da outra)."""
     ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
@@ -177,12 +184,15 @@ class Detector:
         min_area: float = 0.0005,
         max_area: float = 0.70,
         deep_scanner="auto",
+        extra_model: str | Path | None = None,
     ):
         """``material_model``: ``"auto"`` (Hugging Face se configurado, senão o classificador local), um caminho
         de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima na categoria para,
         no modo de 1 item por foto (ou no plano B), a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
-        ocupar."""
+        ocupar. ``extra_model``: um segundo detector (o de uma classe só, treinado no TACO), cujas caixas entram
+        quando o primeiro não achou nada no mesmo lugar."""
         self.model, self.model_path, self.fallback_note = _load_detector(model_path, detector_kind)
+        self.extra_model = YOLO(str(resolve(extra_model))) if extra_model else None
         names = self.model.names
         self.is_coco = len(names) == 80 and names[0] == "person"
         self.is_open_vocab = is_open_vocab(names)
@@ -235,8 +245,10 @@ class Detector:
     @property
     def backend(self) -> str:
         if self.is_open_vocab:
-            return "yoloe" if "yoloe" in self.model_path.name else "yolo-world"
-        return "coco" if self.is_coco else "customizado"
+            name = "yoloe" if "yoloe" in self.model_path.name else "yolo-world"
+        else:
+            name = "coco" if self.is_coco else "customizado"
+        return f"{name} + {AGNOSTIC_LABEL}s" if self.extra_model is not None else name
 
     @property
     def texture_name(self) -> str | None:
@@ -297,31 +309,36 @@ class Detector:
         h, w = image.shape[:2]
         clip = self.calibration.clip_limit if self.calibration else 2.0
         source = enhance(image, clip) if self.preprocess else image
-        result = self.model.predict(
-            source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False
-        )[0]
-        names = result.names
         detections = []
-        for xyxy, p, c in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(), result.boxes.cls.tolist()):
-            label = names[int(c)]
-            if self.is_open_vocab and label in IGNORED_VOCABULARY:
-                continue  # estão no vocabulário só para o detector não confundir pessoas e mãos com resíduo
-            if label in self.ignore_labels:
+        for model in (self.model, self.extra_model):
+            if model is None:
                 continue
-            category, weight = self._shape_category(label)
-            if waste_only and category is None:
-                continue
-            box = tuple(float(v) for v in xyxy)
-            area = (box[2] - box[0]) * (box[3] - box[1]) / (w * h)
-            if category and not single_item and not self.min_area <= area <= self.max_area:
-                continue  # resíduo "do tamanho da imagem" é parede, mesa ou o próprio corpo; minúsculo é ruído
-            if self.calibration and self.calibration.foreground_ratio(image, box) < BACKGROUND_MIN_CHANGE:
-                continue  # é o fundo calibrado
-            if label == AGNOSTIC_LABEL:
-                probs = dict(AGNOSTIC_PRIOR)
-            else:
-                probs = shape_vote(category, float(p)) if category else None
-            detections.append(Detection(label, float(p), box, category, weight, probs=probs))
+            result = model.predict(
+                source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False
+            )[0]
+            found = [d for d in detections if d.category]
+            for xyxy, p, c in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(), result.boxes.cls.tolist()):
+                label = result.names[int(c)]
+                if self.is_open_vocab and label in IGNORED_VOCABULARY:
+                    continue  # estão no vocabulário só para o detector não confundir pessoas e mãos com resíduo
+                if label in self.ignore_labels:
+                    continue
+                category, weight = self._shape_category(label)
+                if waste_only and category is None:
+                    continue
+                box = tuple(float(v) for v in xyxy)
+                area = (box[2] - box[0]) * (box[3] - box[1]) / (w * h)
+                if category and not single_item and not self.min_area <= area <= self.max_area:
+                    continue  # resíduo "do tamanho da imagem" é parede, mesa ou o próprio corpo; minúsculo é ruído
+                if self.calibration and self.calibration.foreground_ratio(image, box) < BACKGROUND_MIN_CHANGE:
+                    continue  # é o fundo calibrado
+                if model is self.extra_model and any(_iou(box, d.box) >= 0.5 for d in found):
+                    continue  # o primeiro detector já achou esse objeto, com um nome que diz mais (banana, garrafa)
+                if label == AGNOSTIC_LABEL:
+                    probs = dict(AGNOSTIC_PRIOR)
+                else:
+                    probs = shape_vote(category, float(p)) if category else None
+                detections.append(Detection(label, float(p), box, category, weight, probs=probs))
 
         if self.texture and self.mode != "rapido":
             detections = self._ensemble(image, detections)
@@ -343,7 +360,8 @@ class Detector:
         No COCO, só os objetos de material ambíguo (garrafa, copo, pote…) passam pela textura: comida e
         eletrônicos já estão certos pelo nome, e o TrashNet não tem essas classes.
         """
-        todo = [i for i, d in enumerate(detections) if d.category and (not self.is_coco or d.label in REFINABLE_LABELS)]
+        todo = [i for i, d in enumerate(detections) if d.category
+                and (not self.is_coco or d.label in REFINABLE_LABELS or d.label == AGNOSTIC_LABEL)]
         predictions = self.texture.predict([crop(image, detections[i].box) for i in todo])
         for i, pred in zip(todo, predictions):
             det = detections[i]

@@ -67,10 +67,14 @@ def configs(kind: str) -> list[dict]:
 
 
 def load(kind: str) -> Detector:
-    """``taco``: o detector de uma classe só treinado nas cenas do TACO (workflow treinar-detector.yml)."""
+    """``taco``: o detector de uma classe só treinado nas cenas do TACO (workflow treinar-detector.yml);
+    ``coco+taco`` (ou ``yoloe+taco``…): o primeiro e, onde ele não achou nada, esse detector. ``TEXTURE_MODEL`` troca
+    o especialista de textura (o padrão é o do sistema)."""
+    taco, texture = MODELS_DIR / "residuos_taco.pt", os.environ.get("TEXTURE_MODEL") or "auto"
     if kind == "taco":
-        return Detector(model_path=MODELS_DIR / "residuos_taco.pt")
-    return Detector(detector_kind=kind)
+        return Detector(model_path=taco, material_model=texture)
+    base, _, extra = kind.partition("+")
+    return Detector(detector_kind=base, material_model=texture, extra_model=taco if extra == "taco" else None)
 
 
 def describe(cfg: dict) -> str:
@@ -99,6 +103,8 @@ def main(out: str, kinds: list[str]) -> None:
         start = time.time()
         det = load(kind)
         det.model, det.texture = CachedModel(det.model), CachedTexture(det.texture)
+        if det.extra_model is not None:
+            det.extra_model = CachedModel(det.extra_model)
         if kind == kinds[0]:
             crops = {split: evaluate_crops(det.texture, items) for split, items in (("val", val), ("test", test))}
             lines += ["## Especialista de textura nos recortes dos resíduos", "",
