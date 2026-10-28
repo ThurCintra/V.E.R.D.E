@@ -169,8 +169,9 @@ streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista de textura ──► 3. Estabilização ──► lixeira
                YOLO-World + vocabulário      recorte de cada objeto         ByteTrack (id)
                de resíduos, CLAHE, filtro    ViT do Hugging Face ou         EMA de 12 quadros
-               de tamanho, sem pessoas       YOLO11-cls TrashNet+TrashBox   Deep Scan (Gemini
-                                             40% forma + 60% textura         ou análise local)
+               de tamanho, sem pessoas       YOLO11-cls (TrashNet, TrashBox Deep Scan (Gemini
+                                             e recortes do TACO)            ou análise local)
+                                             40% forma + 60% textura
 ```
 
 | Modo (painel de calibração) | Estágios | Para quê |
@@ -186,8 +187,8 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
   ignorado, e o realce se ajusta à luz.
 - **Estágio 2** (`src/material_classifier.py`): cada recorte passa por um classificador de textura. Com
   `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face) usa o `transformers`; sem ele, ou se
-  o modelo não puder ser baixado, usa o YOLO11-cls treinado no TrashNet + TrashBox que vem no repositório. O
-  resultado é combinado com o detector: 40% forma, 60% textura.
+  o modelo não puder ser baixado, usa o YOLO11-cls que vem no repositório, treinado no TrashNet, no TrashBox e em
+  recortes do TACO. O resultado é combinado com o detector: 40% forma, 60% textura.
 - **Estágio 3** (`src/temporal.py`, `src/deep_scan.py`): veja *Rastreamento em vídeo*. No modo Ultra, um objeto
   com certeza entre 35% e 60% parado no centro por 1,5 s (ou todos, com a opção ligada) vai para o **Deep Scan**
   numa thread separada: o Gemini 2.5 Flash (se `GEMINI_API_KEY` estiver no `.env`; veja `.env.example`) ou uma
@@ -266,31 +267,37 @@ posição do objeto. É o modo que mais acerta quando a captura é controlada.
 
 ### Resultados medidos
 
-Dois testes com fotos que nenhum modelo viu no treino (`python -m src.evaluate material` e `system`; os relatórios
-e as matrizes de confusão estão em `reports/`):
+Três testes com fotos que nenhum modelo viu no treino (`python -m src.evaluate material` e `system`, e o workflow
+*Avaliar em cenas reais*; os relatórios e as matrizes de confusão estão em `reports/`):
 
 - **TrashNet** (379 fotos): um objeto sobre fundo branco, de perto, como numa lixeira com câmera fixa.
 - **TrashBox** (1.793 fotos): fotos da internet com fundos, ângulos e luz variados, objetos amassados, pilhas, lixo
   eletrônico e hospitalar. Bem mais perto do que uma câmera comum vê.
+- **TACO** (300 fotos de teste, 640 resíduos): lixo de verdade no chão, na grama, na areia, com vários objetos por
+  foto, rótulos e sujeira. Veja *Cenas reais (TACO)*.
 
-| Classificador de material, nas 5 categorias        | TrashNet | TrashBox  |
-| --------------------------------------------------- | -------- | --------- |
-| Anterior: `yolov8n-cls`, treinado só no TrashNet    | 95,2%    | 39,6%     |
-| **Atual: `yolo11s-cls`, TrashNet + TrashBox**       | 92,3%    | **90,0%** |
+| Classificador de material, nas 5 categorias              | TrashNet | TrashBox  | TACO (recortes) |
+| --------------------------------------------------------- | -------- | --------- | --------------- |
+| `yolov8n-cls`, treinado só no TrashNet                    | 95,2%    | 39,6%     | –               |
+| `yolo11s-cls`, TrashNet + TrashBox                        | 92,3%    | 90,0%     | 30,0%           |
+| **Atual: o mesmo, ajustado com recortes do TACO**         | 92,1%    | 89,9%     | **65,0%**       |
 
 | Sistema inteiro (detector + classificador) | TrashNet, 1 objeto | TrashNet, normal | TrashBox, 1 objeto | TrashBox, normal |
 | ------------------------------------------ | ------------------ | ---------------- | ------------------ | ---------------- |
-| COCO + classificador anterior              | 93,7%              | 84,4%            | 39,3%              | 39,3%            |
-| COCO + classificador atual                 | 92,3%              | 84,2%            | **89,6%**          | **77,1%**        |
-| YOLOE + classificador anterior             | 93,9%              | 89,5%            | 38,9%              | 37,0%            |
-| YOLOE + classificador atual                | 92,3%              | 85,5%            | **89,8%**          | **78,2%**        |
+| COCO + `yolov8n-cls` (só TrashNet)         | 93,7%              | 84,4%            | 39,3%              | 39,3%            |
+| COCO + `yolo11s-cls` (TrashNet + TrashBox) | 92,3%              | 84,2%            | 89,6%              | 77,1%            |
+| **COCO + classificador atual**             | 91,6%              | 82,3%            | 89,5%              | 75,9%            |
+| YOLOE + `yolov8n-cls` (só TrashNet)        | 93,9%              | 89,5%            | 38,9%              | 37,0%            |
+| YOLOE + `yolo11s-cls` (TrashNet + TrashBox)| 92,3%              | 85,5%            | 89,8%              | 78,2%            |
+| **YOLOE + classificador atual**            | 91,8%              | 86,3%            | 89,6%              | 76,6%            |
 
-Acerto por categoria no TrashBox: Plástico 90%, Papel 93%, Metal 90%, Vidro 89% e Orgânico/Rejeito 87% (com o
-classificador anterior: 22%, 87%, 46%, 28% e 3%). As confusões que sobram são rejeito visto como papel (caixas de
-remédio, máscaras) e vidro transparente visto como plástico.
+Acerto por categoria no TrashBox, com o classificador atual: Plástico 87%, Papel 94%, Metal 90%, Vidro 87% e
+Orgânico/Rejeito 89% (com o `yolov8n-cls` só TrashNet: 22%, 87%, 46%, 28% e 3%). As confusões que sobram são rejeito
+visto como papel (caixas de remédio, máscaras) e vidro transparente visto como plástico.
 
-- **O anterior parecia melhor do que era:** 95% em fotos iguais às do treino, mas 4 acertos em 10 em fotos
-  variadas. O atual troca 3 pontos nas fotos de estúdio por 50 pontos nas variadas.
+- **O `yolov8n-cls` parecia melhor do que era:** 95% em fotos iguais às do treino, mas 4 acertos em 10 em fotos
+  variadas. O `yolo11s-cls` trocou 3 pontos nas fotos de estúdio por 50 pontos nas variadas, e o ajuste com o TACO,
+  menos de 1 ponto por 35 pontos no lixo de verdade.
 - **Fotos repetidas:** o TrashBox, montado com imagens da internet, contém 112 das 379 fotos de teste do TrashNet e
   repete no treino 116 das suas próprias fotos de teste. Treinar sem limpar faria o teste "colar". Antes do treino,
   `src/dedup.py` tira do treino as 642 fotos que repetem uma da validação ou do teste, e os testes ficam intactos.
@@ -303,15 +310,43 @@ remédio, máscaras) e vidro transparente visto como plástico.
 - O YOLO-World (o padrão) não está na tabela: o ambiente onde ela foi feita não alcança os pesos do CLIP. O YOLOE é
   da mesma família.
 
-**Limite conhecido:** os dois testes têm um resíduo por foto. Em pilhas densas de lixo misturado, o detector acha
-só parte dos objetos. Para esse cenário, o caminho é treinar o detector com o TACO no Colab (abaixo) e, depois,
-com as suas próprias fotos.
+O classificador incluído é o `yolo11s-cls` (pré-treinado no ImageNet), treinado em CPU em três etapas:
 
-O classificador incluído é o `yolo11s-cls` (pré-treinado no ImageNet), treinado em CPU em duas etapas
-(`python -m src.train material`): 20 épocas no dataset combinado (13.173 fotos, 3 horas) e 3 épocas de ajuste fino
-com as fotos do TrashNet repetidas 3 vezes (26 minutos). Sem o ajuste fino, o acerto nas fotos do TrashNet da
-validação ficava 2 pontos abaixo do anterior; com ele, empatou. A escolha do modelo, do ajuste fino e do limite
-usou só a validação; os testes foram medidos no fim.
+1. `python -m src.train material`: 20 épocas no dataset combinado (13.173 fotos, 3 horas) e 3 épocas de ajuste fino
+   com as fotos do TrashNet repetidas 3 vezes (26 minutos). Sem esse ajuste, o acerto nas fotos do TrashNet da
+   validação ficava 2 pontos abaixo do `yolov8n-cls`; com ele, empatou.
+2. `python -m src.train material-taco` (ou o workflow *Treinar com o TACO*): 8 épocas com os 1.957 recortes de
+   treino do TACO mais 600 fotos por classe do dataset combinado, para não esquecer o que já sabia, e a base
+   congelada até a camada 8 (25 minutos na CPU do GitHub). Veja *Cenas reais (TACO)*.
+
+A escolha do modelo, dos ajustes e do limite usou só a validação; os testes foram medidos no fim.
+
+### Cenas reais (TACO)
+
+Os testes do TrashNet e do TrashBox têm um resíduo por foto, e o sistema ia bem neles. Numa foto com vários
+objetos, como a de exemplo do site, ele marcava o prato e o fundo escuro como Papel e o pote de plástico também.
+O [TACO](http://tacodataset.org) (1.500 fotos de lixo de verdade, com a caixa e o material de cada objeto) mostrou
+o tamanho do problema: o classificador de textura acertava **30%** dos recortes de lixo real (era treinado com
+objetos limpos e inteiros) e o detector do COCO não conhece latas, embalagens, bitucas nem caixas.
+
+`src.train.prepare_taco_scenes` separa as fotos em treino, validação e teste (60/20/20, por foto) e
+`src.evaluate.evaluate_scenes` mede o sistema como o site mostra: um resíduo só conta como acerto se uma caixa
+(IoU ≥ 0,5) o achou com a lixeira certa. O workflow *Avaliar em cenas reais (TACO)* roda tudo no GitHub e publica
+a tabela como um check do commit.
+
+Ajuste do classificador com os recortes de treino do TACO, escolhido pela validação (o melhor nos recortes do TACO
+entre os que não perdem mais de 1 ponto na validação do TrashNet + TrashBox; `reports/material_taco.json`):
+
+| Variante (8 épocas)              | TACO, validação | Validação TrashNet + TrashBox | TACO, teste | TrashNet, teste | TrashBox, teste |
+| -------------------------------- | --------------- | ----------------------------- | ----------- | --------------- | --------------- |
+| antes do ajuste                  | 28,6%           | 91,4%                         | 30,0%       | 92,3%           | 90,0%           |
+| **base congelada até a camada 8** | 62,6%          | 90,7%                         | **65,0%**   | 92,1%           | 89,9%           |
+| base congelada até a camada 5    | 64,6%           | 89,7% (−1,7)                  | 66,1%       | 90,0%           | 89,2%           |
+| todas as camadas                 | 65,7%           | 89,7% (−1,7)                  | 65,2%       | 89,5%           | 89,1%           |
+| todas as camadas, taxa 0,0001    | 64,5%           | 89,5% (−1,9)                  | 65,8%       | 90,2%           | 88,5%           |
+
+O detector de uma classe só treinado no TACO (`python -m src.train detector-taco`, ou o workflow *Treinar o
+detector com o TACO*) está sendo medido.
 
 ### Dicas de captura (o que mais melhora o resultado de graça)
 

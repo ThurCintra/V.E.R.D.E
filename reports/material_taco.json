@@ -1,0 +1,427 @@
+{
+ "atual": {
+  "taco_val": 0.2861,
+  "taco_teste": 0.3,
+  "referencia_val": 0.9143,
+  "trashnet_teste": 0.9235,
+  "trashbox_teste": 0.8996,
+  "cenas_teste": [
+   {
+    "precision": 0.161,
+    "recall": 0.0734,
+    "f1": 0.1009,
+    "found": 0.1359,
+    "category_accuracy": 0.5402,
+    "bins_precision": 0.4767,
+    "bins_recall": 0.3384,
+    "bins_f1": 0.3958,
+    "boxes_per_image": 0.98,
+    "images": 300,
+    "objects": 640,
+    "found_by_category": {
+     "accuracy": 0.5402,
+     "macro_f1": 0.5326,
+     "n": 87,
+     "per_class": {
+      "Plástico": {
+       "precision": 0.7333,
+       "recall": 0.5238,
+       "f1": 0.6111,
+       "support": 42
+      },
+      "Papel": {
+       "precision": 0.625,
+       "recall": 0.3846,
+       "f1": 0.4762,
+       "support": 13
+      },
+      "Metal": {
+       "precision": 0.7692,
+       "recall": 0.5882,
+       "f1": 0.6667,
+       "support": 17
+      },
+      "Vidro": {
+       "precision": 0.8571,
+       "recall": 0.5455,
+       "f1": 0.6667,
+       "support": 11
+      },
+      "Orgânico/Rejeito": {
+       "precision": 0.1379,
+       "recall": 1.0,
+       "f1": 0.2424,
+       "support": 4
+      }
+     },
+     "labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "predicted_labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "confusion_matrix": [
+      [
+       22,
+       3,
+       0,
+       1,
+       16
+      ],
+      [
+       3,
+       5,
+       2,
+       0,
+       3
+      ],
+      [
+       3,
+       0,
+       10,
+       0,
+       4
+      ],
+      [
+       2,
+       0,
+       1,
+       6,
+       2
+      ],
+      [
+       0,
+       0,
+       0,
+       0,
+       4
+      ]
+     ]
+    }
+   },
+   {
+    "precision": 0.1558,
+    "recall": 0.0672,
+    "f1": 0.0939,
+    "found": 0.1156,
+    "category_accuracy": 0.5811,
+    "bins_precision": 0.4944,
+    "bins_recall": 0.3384,
+    "bins_f1": 0.4018,
+    "boxes_per_image": 0.93,
+    "images": 300,
+    "objects": 640,
+    "found_by_category": {
+     "accuracy": 0.5811,
+     "macro_f1": 0.556,
+     "n": 74,
+     "per_class": {
+      "Plástico": {
+       "precision": 0.7241,
+       "recall": 0.5833,
+       "f1": 0.6462,
+       "support": 36
+      },
+      "Papel": {
+       "precision": 0.6,
+       "recall": 0.3,
+       "f1": 0.4,
+       "support": 10
+      },
+      "Metal": {
+       "precision": 0.8182,
+       "recall": 0.6429,
+       "f1": 0.72,
+       "support": 14
+      },
+      "Vidro": {
+       "precision": 0.8571,
+       "recall": 0.6,
+       "f1": 0.7059,
+       "support": 10
+      },
+      "Orgânico/Rejeito": {
+       "precision": 0.1818,
+       "recall": 1.0,
+       "f1": 0.3077,
+       "support": 4
+      }
+     },
+     "labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "predicted_labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "confusion_matrix": [
+      [
+       21,
+       2,
+       0,
+       1,
+       12
+      ],
+      [
+       3,
+       3,
+       1,
+       0,
+       3
+      ],
+      [
+       3,
+       0,
+       9,
+       0,
+       2
+      ],
+      [
+       2,
+       0,
+       1,
+       6,
+       1
+      ],
+      [
+       0,
+       0,
+       0,
+       0,
+       4
+      ]
+     ]
+    }
+   }
+  ],
+  "passa": false
+ },
+ "congelada8": {
+  "taco_val": 0.6265,
+  "taco_teste": 0.65,
+  "referencia_val": 0.9072,
+  "trashnet_teste": 0.9208,
+  "trashbox_teste": 0.8991,
+  "cenas_teste": [
+   {
+    "precision": 0.2092,
+    "recall": 0.0922,
+    "f1": 0.128,
+    "found": 0.1359,
+    "category_accuracy": 0.6782,
+    "bins_precision": 0.5299,
+    "bins_recall": 0.3613,
+    "bins_f1": 0.4297,
+    "boxes_per_image": 0.95,
+    "images": 300,
+    "objects": 640,
+    "found_by_category": {
+     "accuracy": 0.6782,
+     "macro_f1": 0.6034,
+     "n": 87,
+     "per_class": {
+      "Plástico": {
+       "precision": 0.6792,
+       "recall": 0.8571,
+       "f1": 0.7579,
+       "support": 42
+      },
+      "Papel": {
+       "precision": 0.8,
+       "recall": 0.3077,
+       "f1": 0.4444,
+       "support": 13
+      },
+      "Metal": {
+       "precision": 0.8333,
+       "recall": 0.5882,
+       "f1": 0.6897,
+       "support": 17
+      },
+      "Vidro": {
+       "precision": 1.0,
+       "recall": 0.4545,
+       "f1": 0.625,
+       "support": 11
+      },
+      "Orgânico/Rejeito": {
+       "precision": 0.3333,
+       "recall": 1.0,
+       "f1": 0.5,
+       "support": 4
+      }
+     },
+     "labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "predicted_labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "confusion_matrix": [
+      [
+       36,
+       1,
+       0,
+       0,
+       5
+      ],
+      [
+       7,
+       4,
+       1,
+       0,
+       1
+      ],
+      [
+       6,
+       0,
+       10,
+       0,
+       1
+      ],
+      [
+       4,
+       0,
+       1,
+       5,
+       1
+      ],
+      [
+       0,
+       0,
+       0,
+       0,
+       4
+      ]
+     ]
+    }
+   },
+   {
+    "precision": 0.1903,
+    "recall": 0.0797,
+    "f1": 0.1123,
+    "found": 0.1156,
+    "category_accuracy": 0.6892,
+    "bins_precision": 0.5346,
+    "bins_recall": 0.3537,
+    "bins_f1": 0.4257,
+    "boxes_per_image": 0.9,
+    "images": 300,
+    "objects": 640,
+    "found_by_category": {
+     "accuracy": 0.6892,
+     "macro_f1": 0.6273,
+     "n": 74,
+     "per_class": {
+      "Plástico": {
+       "precision": 0.6818,
+       "recall": 0.8333,
+       "f1": 0.75,
+       "support": 36
+      },
+      "Papel": {
+       "precision": 0.75,
+       "recall": 0.3,
+       "f1": 0.4286,
+       "support": 10
+      },
+      "Metal": {
+       "precision": 0.8182,
+       "recall": 0.6429,
+       "f1": 0.72,
+       "support": 14
+      },
+      "Vidro": {
+       "precision": 1.0,
+       "recall": 0.5,
+       "f1": 0.6667,
+       "support": 10
+      },
+      "Orgânico/Rejeito": {
+       "precision": 0.4,
+       "recall": 1.0,
+       "f1": 0.5714,
+       "support": 4
+      }
+     },
+     "labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "predicted_labels": [
+      "Plástico",
+      "Papel",
+      "Metal",
+      "Vidro",
+      "Orgânico/Rejeito"
+     ],
+     "confusion_matrix": [
+      [
+       30,
+       1,
+       0,
+       0,
+       5
+      ],
+      [
+       6,
+       3,
+       1,
+       0,
+       0
+      ],
+      [
+       4,
+       0,
+       9,
+       0,
+       1
+      ],
+      [
+       4,
+       0,
+       1,
+       5,
+       0
+      ],
+      [
+       0,
+       0,
+       0,
+       0,
+       4
+      ]
+     ]
+    }
+   }
+  ],
+  "passa": true
+ },
+ "guardado": "congelada8"
+}
