@@ -2,9 +2,9 @@
 
     python .github/scripts/precision_check.py
 
-O mesmo sistema do site público (``WASTE_PUBLIC=1``: COCO + textura) nas 379 fotos de teste do TrashNet, baixadas e
-separadas como no treino, nos modos "1 objeto por foto" e normal. Falha se o acerto cair mais de 1 ponto. Os
-resultados viram anotações do GitHub Actions (::notice/::error).
+O mesmo sistema do site público (``WASTE_PUBLIC=1``: COCO + detector do TACO + textura) nas 379 fotos de teste do
+TrashNet, baixadas e separadas como no treino, nos modos "1 objeto por foto" e normal. Falha se o acerto cair mais
+de 1 ponto. Os resultados viram anotações do GitHub Actions (::notice/::error).
 """
 
 import hashlib
@@ -39,7 +39,7 @@ report = json.loads((ROOT / "reports" / "sistema_modos.json").read_text(encoding
 detector = Detector.from_env()
 failed = False
 for key, (name, single_item) in MODES.items():
-    expected = report[f"taco|coco|test_trashnet|{key}"]
+    expected = report[f"taco|coco+taco@0.55|test_trashnet|{key}"]
     result = evaluate_system(detector, TRASHNET_TEST, single_item=single_item)
     same = "as mesmas respostas por categoria" if result["confusion_matrix"] == expected["confusion"] else "respostas diferentes"
     line = f"{name}: {result['accuracy']:.1%} (relatório: {expected['accuracy']:.1%}), {same} · {detector.description}"

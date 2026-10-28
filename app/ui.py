@@ -13,7 +13,7 @@ import streamlit as st
 from src import paths
 from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
 from src.database import Database
-from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate
+from src.detector import DEEP_SCAN_RANGE, DEFAULT_CONF, MODES, Detector, annotate
 from src.material import crop
 from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
 from src.review import ReviewCollector
@@ -22,11 +22,11 @@ EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩",
 DEFAULTS = {
     "um_objeto": False, "detalhes": False,
     # Painel de calibração de precisão
-    "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
+    "modo": "alta", "confianca": DEFAULT_CONF, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
 }
 MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
 MODE_HELP = {
-    "rapido": "Só o detector (YOLO-World). O mais rápido, bom para vídeo ao vivo num PC simples.",
+    "rapido": "Só os detectores (COCO + TACO). O mais rápido, bom para vídeo ao vivo num PC simples.",
     "alta": "Detector + especialista de textura (40% forma, 60% textura). Separa PET de vidro, lata de copo.",
     "ultra": "Alta precisão + Deep Scan: objetos duvidosos ganham uma segunda análise detalhada "
              "(Gemini, se houver GEMINI_API_KEY; senão, análise local de 8 variações do recorte).",

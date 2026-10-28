@@ -25,9 +25,13 @@ with sync_playwright() as pw:
         page.get_by_role("button", name="Registrar no meu impacto").wait_for(timeout=180_000)
         body = page.inner_text("body")
         assert "Itens encontrados" in body, "a análise não listou os itens"
-        assert "lixeira" in body.lower(), "a análise não mostrou as lixeiras"  # o CSS deixa em maiúsculas
+        # A foto de exemplo: caixa de leite (Papel), pote de plástico e banana (Orgânico), sem o prato nem o fundo
+        text = body.lower()  # o CSS deixa partes em maiúsculas
+        assert "3 itens, 3 lixeiras diferentes" in text, "a foto de exemplo não deu os 3 itens esperados"
+        for color in ("azul", "vermelha", "marrom"):
+            assert f"lixeira {color}" in text, f"faltou a lixeira {color}"
         page.screenshot(path="site.png", full_page=True)
-        print(f"::notice title=Site::abriu, analisou a foto de exemplo e mostrou as lixeiras ({url})")
+        print(f"::notice title=Site::abriu e achou os 3 itens da foto de exemplo: Papel, Plástico e Orgânico ({url})")
     except Exception as err:
         text = " | ".join(page.inner_text("body").split("\n"))[:2500]
         print(f"::error title=Site::{type(err).__name__}: {err} -- página: {text}")

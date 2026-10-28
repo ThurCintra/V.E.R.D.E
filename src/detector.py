@@ -1,9 +1,10 @@
 """Motor de inferência híbrido de 3 estágios para resíduos recicláveis.
 
-1. **Detecção espacial** (rápida): YOLO-World com vocabulário de resíduos (``src/open_vocab.py``), com
-   pré-processamento CLAHE + filtro bilateral (``src/preprocess.py``), filtro de tamanho (ignora o que ocupa mais
-   de 70% da imagem, como paredes e o próprio corpo) e descarte de pessoas. Se o vocabulário não puder ser montado
-   (sem internet na primeira vez), o detector cai para o YOLOE e, por fim, para o YOLOv8 do COCO.
+1. **Detecção espacial** (rápida): o YOLOv8 do COCO (garrafas, copos, comida…) e, onde ele não achou nada, o
+   detector de uma classe só treinado no TACO (latas, embalagens, bitucas, caixas), com filtro de tamanho (ignora o
+   que ocupa mais de 70% da imagem, como paredes e o próprio corpo) e caixas repetidas da mesma lixeira juntas.
+   Opcionais: YOLO-World ou YOLOE com vocabulário de resíduos (``src/open_vocab.py``) e pré-processamento CLAHE +
+   filtro bilateral (``src/preprocess.py``).
 2. **Especialista de textura** (``src/material_classifier.py``): classifica o recorte de cada objeto; o resultado
    é combinado com o detector (40% forma, 60% textura).
 3. **Estabilização temporal** (vídeo, ``track``): o ByteTrack (pacote ``trackers``, sobre o ``supervision``) dá um ``tracker_id`` a cada objeto, a votação por
@@ -12,8 +13,9 @@
 
 Modos de operação: ``rapido`` (só o estágio 1), ``alta`` (1 + 2) e ``ultra`` (1 + 2 + Deep Scan).
 
-Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``yolo-world``, ``yoloe``
-ou ``coco``), ``WASTE_MODEL`` (um peso específico), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_TTA=1``,
+Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``coco``, ``yolo-world``
+ou ``yoloe``), ``WASTE_MODEL`` (um peso específico), ``WASTE_EXTRA_MODEL`` (o segundo detector; ``off`` desliga),
+``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_MERGE`` (``off`` não junta as repetidas), ``WASTE_TTA=1``,
 ``WASTE_PREPROCESS=1`` (liga o CLAHE), ``WASTE_MATERIAL_MODEL`` (``off`` desliga o estágio 2), ``WASTE_HF_MODEL`` e
 ``WASTE_MATERIAL_CONF``.
 """
@@ -42,8 +44,7 @@ from src.material_classifier import (
     top,
 )
 from src.open_vocab import IGNORED_VOCABULARY, VOCAB_CATEGORY, is_open_vocab, load_open_vocab
-from src import paths
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, TACO_DETECTOR
 from src.preprocess import SceneCalibration, enhance
 from src.recycling import CATEGORIES, COCO_RULES, DEFAULT_WEIGHT_G, METAL, category_from_name
 from src.temporal import TemporalVoter
@@ -52,6 +53,9 @@ from src.weights import resolve
 log = logging.getLogger(__name__)
 
 MODES = {"rapido": "Rápido", "alta": "Alta precisão", "ultra": "Ultra precisão"}
+# Escolhidos nas cenas de validação do TACO: confiança mínima das caixas e sobreposição para juntar as repetidas
+DEFAULT_CONF = 0.55
+DEFAULT_MERGE = 0.7
 # Detector de uma classe só (treinado no TACO: acha o lixo, e a textura decide o material). Antes da textura, o voto
 # do detector é a frequência de cada categoria entre os resíduos do TACO.
 AGNOSTIC_LABEL = "residuo"
@@ -206,6 +210,7 @@ class Detector:
         self.deep_scan_all = False  # Deep Scan em todo objeto (não só nos duvidosos parados no centro)
         self.ignore_labels: frozenset[str] = frozenset()  # classes do detector que nunca viram resíduo
         self.merge_overlap: float | None = None  # junta caixas da mesma categoria com essa sobreposição (None: não)
+        self.agnostic_prior = dict(AGNOSTIC_PRIOR)  # voto do detector de uma classe só, antes da textura
 
         if material_model == "auto":
             self.texture = load_texture_expert(device)
@@ -217,20 +222,28 @@ class Detector:
 
     @classmethod
     def from_env(cls) -> "Detector":
+        """O padrão é o que mais acertou nas cenas de validação do TACO (veja "Cenas reais" no README): o COCO, o
+        detector de uma classe só treinado no TACO onde o COCO não achou nada, caixas com pelo menos 55% de
+        confiança e as repetidas da mesma lixeira juntas."""
         material = os.environ.get("WASTE_MATERIAL_MODEL", "auto")
-        return cls(
+        extra = os.environ.get("WASTE_EXTRA_MODEL", str(TACO_DETECTOR) if TACO_DETECTOR.is_file() else "")
+        detector = cls(
             model_path=os.environ.get("WASTE_MODEL") or None,
-            conf=float(os.environ.get("DETECTOR_CONF", "0.25")),
+            conf=float(os.environ.get("DETECTOR_CONF", str(DEFAULT_CONF))),
             imgsz=int(os.environ.get("WASTE_IMGSZ", "640")),
             augment=os.environ.get("WASTE_TTA", "0") == "1",
             material_model=None if material.lower() in ("off", "0", "none") else material,
             material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.5")),
             mode=os.environ.get("WASTE_MODE", "alta"),
-            # No site público, o COCO: mediu quase igual ao YOLOE (~1 ponto a menos no modo normal) e não precisa
-            # baixar nem carregar o CLIP (~600 MB a mais de memória), bem além do que os servidores gratuitos garantem
-            detector_kind=os.environ.get("WASTE_DETECTOR", "coco" if paths.PUBLIC else "yolo-world"),
+            # O COCO no lugar do YOLO-World e do YOLOE: nas cenas do TACO, os dois acertaram menos e precisam do
+            # CLIP para montar o vocabulário (~600 MB a mais de memória, além do que os servidores gratuitos garantem)
+            detector_kind=os.environ.get("WASTE_DETECTOR", "coco"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
+            extra_model=None if extra.lower() in ("", "off", "0", "none") else extra,
         )
+        merge = os.environ.get("WASTE_MERGE", str(DEFAULT_MERGE))
+        detector.merge_overlap = None if merge.lower() in ("off", "0", "none") else float(merge)
+        return detector
 
     # ------------------------------------------------------------ informações
     @property
@@ -276,12 +289,12 @@ class Detector:
 
     # ------------------------------------------------------------ estágio 1
     def _shape_category(self, label: str) -> tuple[str | None, float]:
+        if label == AGNOSTIC_LABEL:  # antes do vocabulário aberto: o segundo detector também completa o YOLO-World
+            category = max(self.agnostic_prior, key=self.agnostic_prior.get)
+            return category, DEFAULT_WEIGHT_G[category]
         if self.is_open_vocab:
             category = VOCAB_CATEGORY.get(label)
             return category, DEFAULT_WEIGHT_G[category] if category else 0.0
-        if label == AGNOSTIC_LABEL:
-            category = max(AGNOSTIC_PRIOR, key=AGNOSTIC_PRIOR.get)
-            return category, DEFAULT_WEIGHT_G[category]
         if not self.is_coco:
             category = category_from_name(label)
             return category.name, DEFAULT_WEIGHT_G[category.name]
@@ -335,7 +348,7 @@ class Detector:
                 if model is self.extra_model and any(_iou(box, d.box) >= 0.5 for d in found):
                     continue  # o primeiro detector já achou esse objeto, com um nome que diz mais (banana, garrafa)
                 if label == AGNOSTIC_LABEL:
-                    probs = dict(AGNOSTIC_PRIOR)
+                    probs = dict(self.agnostic_prior)
                 else:
                     probs = shape_vote(category, float(p)) if category else None
                 detections.append(Detection(label, float(p), box, category, weight, probs=probs))

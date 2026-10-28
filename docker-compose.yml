@@ -10,9 +10,9 @@ x-app: &app
     - path: .env
       required: false
   environment:
-    DETECTOR_CONF: ${DETECTOR_CONF:-0.25}
+    DETECTOR_CONF: ${DETECTOR_CONF:-0.55}
     WASTE_MODE: ${WASTE_MODE:-alta}                # rapido | alta | ultra
-    WASTE_DETECTOR: ${WASTE_DETECTOR:-yolo-world}  # yolo-world | yoloe | coco
+    WASTE_DETECTOR: ${WASTE_DETECTOR:-coco}  # coco (+ o detector do TACO) | yolo-world | yoloe
     WASTE_MODEL: ${WASTE_MODEL:-}                  # um peso específico (vazio = automático)
     WASTE_IMGSZ: ${WASTE_IMGSZ:-640}               # 960 ajuda com itens pequenos (mais lento)
     WASTE_MATERIAL_MODEL: ${WASTE_MATERIAL_MODEL:-auto}   # off desliga a 2ª etapa

@@ -101,7 +101,9 @@ def main(out: str, kinds: list[str]) -> None:
     summary = {}
     for kind in kinds:
         start = time.time()
-        det = load(kind)
+        det = Detector.from_env() if kind.startswith("padrao") else load(kind)
+        if kind == "padrao-neutro":  # o mesmo, com o voto do detector do TACO neutro (a textura decide sozinha)
+            det.agnostic_prior = {c: 1 / len(det.agnostic_prior) for c in det.agnostic_prior}
         det.model, det.texture = CachedModel(det.model), CachedTexture(det.texture)
         if det.extra_model is not None:
             det.extra_model = CachedModel(det.extra_model)
@@ -116,6 +118,19 @@ def main(out: str, kinds: list[str]) -> None:
             lines += ["", "Confusão (linhas: verdade; colunas: previsto): "
                       + json.dumps({"labels": crops["test"]["labels"], "matrix": crops["test"]["confusion_matrix"]},
                                    ensure_ascii=False), ""]
+        if kind.startswith("padrao"):  # o sistema como ele vem (Detector.from_env), sem variações
+            r_val, r_test = evaluate_scenes(det, val), evaluate_scenes(det, test)
+            merge = f"junta repetidas ({det.merge_overlap})" if det.merge_overlap else "sem juntar"
+            neutral = " (voto do detector do TACO neutro)" if kind == "padrao-neutro" else ""
+            lines += [f"## Padrão do sistema{neutral}: {det.description}, conf {det.conf:.2f}, {merge}", "", HEADER,
+                      row("validação", r_val), row("teste", r_test)]
+            if r_test["found_by_category"]:
+                lines += ["", "Lixeira certa por categoria, nos resíduos achados (teste): " + ", ".join(
+                    f"{c} {v['recall']:.0%} ({v['support']})" for c, v in r_test["found_by_category"]["per_class"].items())]
+            lines += ["", f"_{time.time() - start:.0f} s_", ""]
+            summary[kind] = {"validacao": r_val, "teste": r_test}
+            print(f"{kind}: F1 validação {r_val['f1']:.1%}, teste {r_test['f1']:.1%}", flush=True)
+            continue
         results = []
         for cfg in configs(kind):
             for name, value in cfg.items():
@@ -123,25 +138,25 @@ def main(out: str, kinds: list[str]) -> None:
             results.append((cfg, evaluate_scenes(det, val)))
         results.sort(key=lambda x: -x[1]["f1"])
         today = next(r for c, r in results if c == configs(kind)[0])
-        lines += [f"## {det.description} (validação)", "", HEADER, row("**o de hoje** (" + describe(configs(kind)[0]) + ")", today)]
+        lines += [f"## {det.description} (validação)", "", HEADER, row("**o padrão antigo** (" + describe(configs(kind)[0]) + ")", today)]
         lines += [row(describe(c), r) for c, r in results[:12]]
         best_cfg = results[0][0]
         tested = {}
-        for label, cfg in (("o de hoje", configs(kind)[0]), ("melhor na validação", best_cfg)):
+        for label, cfg in (("o padrão antigo", configs(kind)[0]), ("melhor na validação", best_cfg)):
             for name, value in cfg.items():
                 setattr(det, name, value)
             tested[label] = evaluate_scenes(det, test)
         lines += ["", f"**Teste** ({det.description}):", "", HEADER]
         lines += [row(f"{label} ({describe(cfg)})", tested[label])
-                  for label, cfg in (("o de hoje", configs(kind)[0]), ("melhor na validação", best_cfg))]
+                  for label, cfg in (("o padrão antigo", configs(kind)[0]), ("melhor na validação", best_cfg))]
         per_cat = tested["melhor na validação"]["found_by_category"]
         if per_cat:
             lines += ["", "Lixeira certa por categoria, nos resíduos achados (melhor, teste): " + ", ".join(
                 f"{c} {v['recall']:.0%} ({v['support']})" for c, v in per_cat["per_class"].items())]
         lines += ["", f"_{time.time() - start:.0f} s_", ""]
-        summary[kind] = {"hoje": tested["o de hoje"], "melhor": tested["melhor na validação"],
+        summary[kind] = {"padrao_antigo": tested["o padrão antigo"], "melhor": tested["melhor na validação"],
                          "melhor_config": describe(best_cfg)}
-        print(f"{kind}: hoje F1 {tested['o de hoje']['f1']:.1%} → melhor {tested['melhor na validação']['f1']:.1%} "
+        print(f"{kind}: padrão antigo F1 {tested['o padrão antigo']['f1']:.1%} → melhor {tested['melhor na validação']['f1']:.1%} "
               f"({describe(best_cfg)})", flush=True)
     Path(out).write_text("\n".join(lines), encoding="utf-8")
     Path(out).with_suffix(".json").write_text(json.dumps(summary, ensure_ascii=False, indent=1, default=str),
