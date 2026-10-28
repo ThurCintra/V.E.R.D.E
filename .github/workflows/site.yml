@@ -1,6 +1,6 @@
 # Simula o Streamlit Community Cloud antes de publicar: num Python limpo, instala só o packages.txt e o
 # app/requirements.txt (com o uv, como o Streamlit Cloud), sobe o dashboard no modo site público, analisa a foto de
-# exemplo num navegador e mede a memória (o plano gratuito garante ~1 GB).
+# exemplo num navegador, mede a memória (o plano gratuito garante 690 MB) e confere se a precisão é a do relatório.
 name: Testar o site (Streamlit Cloud)
 
 on:
@@ -14,6 +14,8 @@ on:
       - ".streamlit/**"
       - ".github/workflows/site.yml"
       - ".github/scripts/site_check.py"
+      - ".github/scripts/precision_check.py"
+      - "reports/sistema_modos.json"
 
 jobs:
   site:
@@ -61,6 +63,11 @@ jobs:
           pid=$(pgrep -f "streamlit run app/dashboard.py" | head -1)
           grep -E "VmHWM|VmRSS" /proc/$pid/status
           echo "::notice title=Memória do site::pico $(grep VmHWM /proc/$pid/status | awk '{printf "%.0f MB", $2/1024}')"
+
+      - name: Precisão no ambiente do site (teste do TrashNet)
+        env:
+          WASTE_PUBLIC: "1"
+        run: python .github/scripts/precision_check.py
 
       - name: Erros do Streamlit
         if: failure()

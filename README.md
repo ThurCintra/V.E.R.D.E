@@ -114,7 +114,8 @@ precisa, com o PyTorch sem CUDA, bem menor) e o `packages.txt`. Depois, cada pus
 No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (várias pessoas no mesmo servidor):
 
 - detector COCO: o YOLO-World precisaria de ~600 MB a mais de memória para montar o vocabulário, e nos testes o COCO
-  acerta o mesmo que o YOLOE (veja *Resultados medidos*);
+  acerta quase o mesmo que o YOLOE: no máximo 0,2 ponto a menos no modo de 1 objeto por foto e cerca de 1 ponto a
+  menos no normal (veja *Resultados medidos*);
 - sem **Câmera contínua**, que seria a câmera do servidor: use **Tirar foto**, com a câmera do celular ou do
   computador de quem está acessando;
 - sem calibração do fundo, re-treino e casos duvidosos (eles mudariam o sistema de todos, ou guardariam fotos dos
@@ -124,8 +125,8 @@ No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (vária
 Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem de 690 MB
 (garantidos) a 2,7 GB de memória, segundo a documentação do Streamlit. O site usa cerca de 815 MB no pico, ao analisar
 uma foto (com o PyTorch do PyPI, que traz o CUDA, eram 1,3 GB). O workflow `.github/workflows/site.yml` simula o
-Streamlit Cloud a cada mudança (instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador) e mede a
-memória usada.
+Streamlit Cloud a cada mudança: instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador, mede a
+memória e roda o teste do TrashNet com o sistema do site, que precisa dar o mesmo acerto do relatório.
 
 A API REST não roda no Streamlit Cloud. Para o sistema inteiro online (dashboard + API), é preciso uma hospedagem com
 Docker, como um Space do Hugging Face (que passou a exigir o plano PRO para Docker) ou um servidor próprio com o
