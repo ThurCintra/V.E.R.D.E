@@ -1,0 +1,36 @@
+# Teste temporário: o GITHUB_TOKEN consegue criar uma branch a partir desta (que muda workflows) e uma órfã?
+name: Teste de push do GITHUB_TOKEN
+
+on:
+  push:
+    paths:
+      - ".github/workflows/teste-push.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Branch nova a partir desta
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B teste-push-normal
+          echo teste > teste.txt && git add teste.txt && git commit -q -m teste
+          if ! git push -f origin teste-push-normal 2> erro.txt; then
+            echo "::error title=Branch normal::$(tr '\n' ' ' < erro.txt | cut -c1-900)"; exit 1
+          fi
+          echo "::notice title=Branch normal::funcionou"
+      - name: Branch órfã
+        run: |
+          git checkout --orphan teste-push-orfa
+          git rm -rq --cached .
+          echo teste > teste.txt && git add teste.txt && git commit -q -m teste
+          if ! git push -f origin teste-push-orfa 2> erro.txt; then
+            echo "::error title=Branch órfã::$(tr '\n' ' ' < erro.txt | cut -c1-900)"; exit 1
+          fi
+          echo "::notice title=Branch órfã::funcionou"
