@@ -25,9 +25,9 @@ from src.recycling import CATEGORIES, category_from_name
 log = logging.getLogger(__name__)
 
 CATEGORY_ORDER = list(CATEGORIES)
-# Sugestão de modelo no Hugging Face. Não foi possível verificar se ele existe (o Hugging Face é inacessível no
-# ambiente onde isto foi escrito): se não existir, o especialista local assume sozinho.
-DEFAULT_HF_MODEL = "watersplash/waste-classification"
+# Um modelo do Hugging Face que dá para testar com WASTE_HF_MODEL (ViT no "Garbage Classification" do Kaggle). Ele
+# não é o padrão: não foi medido nos testes do projeto, e o classificador local foi (veja "Resultados medidos").
+SUGGESTED_HF_MODEL = "watersplash/waste-classification"
 SHAPE_WEIGHT, TEXTURE_WEIGHT = 0.4, 0.6
 
 
@@ -131,8 +131,9 @@ class HFTextureExpert:
 
 
 def load_texture_expert(device: str = "cpu"):
-    """Hugging Face se configurado e acessível; senão o modelo local. Devolve None se nenhum existir."""
-    model_id = os.environ.get("WASTE_HF_MODEL", DEFAULT_HF_MODEL).strip()
+    """O modelo do Hugging Face em ``WASTE_HF_MODEL``, se definido e acessível; senão (o padrão) o modelo local.
+    Devolve None se nenhum existir."""
+    model_id = os.environ.get("WASTE_HF_MODEL", "").strip()
     if model_id and model_id.lower() not in ("off", "0", "none"):
         try:
             return HFTextureExpert(model_id, device)
