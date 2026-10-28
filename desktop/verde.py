@@ -1,8 +1,11 @@
 """V.E.R.D.E. como aplicativo de desktop: o ponto de entrada do ``VERDE.exe``.
 
 Sobe o dashboard Streamlit numa porta livre do próprio computador e o abre numa janela de aplicativo (Edge ou
-Chrome em modo ``--app``, sem barra de endereço). Fechar a janela encerra o programa. Sem Edge nem Chrome, abre
-no navegador padrão e o programa fica rodando até a janela preta (console) ser fechada.
+Chrome em modo ``--app``, sem barra de endereço); sem Edge nem Chrome, no navegador padrão. Uma tela de
+"carregando" aparece na hora, enquanto os modelos sobem. Fechar a última janela encerra o programa, e abrir o
+programa de novo enquanto ele roda só abre outra janela (não sobe um segundo servidor).
+
+O .exe não tem janela de console: as mensagens vão para ``verde.log`` na pasta de dados.
 
     python desktop/verde.py            # o mesmo que o .exe faz, a partir do código-fonte
     python desktop/verde.py --check    # autoteste: carrega os modelos, analisa a foto de exemplo e sai
@@ -63,6 +66,59 @@ def prepare_environment() -> Path:
     return home
 
 
+LOADING_PAGE = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>V.E.R.D.E.</title>
+<style>body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+font-family:Segoe UI,Helvetica,Arial,sans-serif;background:#F5F8F4;color:#1C2B22}
+.r{width:46px;height:46px;border:5px solid #CDEFD9;border-top-color:#1F8A4C;border-radius:50%;
+animation:g 1s linear infinite}@keyframes g{to{transform:rotate(360deg)}}h1{font-size:26px;letter-spacing:2px}
+p{color:#4A5E52}</style></head><body><div class="r"></div><h1>V.E.R.D.E.</h1>
+<p>Carregando os modelos... na primeira vez pode levar até um minuto.</p>
+<script>const url="__URL__";(function ping(){fetch(url+"/_stcore/health",{mode:"no-cors",cache:"no-store"})
+.then(()=>location.replace(url)).catch(()=>setTimeout(ping,500))})();</script></body></html>"""
+IDLE_EXIT_S = 20  # sem nenhuma janela conectada por esse tempo (depois da primeira), o programa sai
+
+
+def setup_logging(home: Path) -> None:
+    """No .exe sem console, ``sys.stdout``/``stderr`` não existem: tudo vai para ``verde.log``."""
+    if sys.stdout is None or sys.stderr is None:
+        home.mkdir(parents=True, exist_ok=True)
+        log = open(home / "verde.log", "w", encoding="utf-8", buffering=1)  # noqa: SIM115 (vive até o fim)
+        sys.stdout = sys.stdout or log
+        sys.stderr = sys.stderr or log
+
+
+def single_instance_lock(home: Path):
+    """Trava do sistema operacional: só a primeira cópia do programa consegue (o arquivo fica aberto enquanto ela
+    roda e é solto sozinho quando ela termina, até se travar). Devolve o arquivo travado, ou None se já há outra."""
+    home.mkdir(parents=True, exist_ok=True)
+    handle = open(home / "instancia.lock", "a+")  # noqa: SIM115 (fica aberto de propósito)
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def address_of_running(home: Path, wait_s: float = 15) -> str | None:
+    """O endereço que a cópia já aberta gravou (ela pode estar acabando de começar)."""
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        try:
+            return (home / "endereco.txt").read_text(encoding="utf-8").strip() or None
+        except OSError:
+            time.sleep(0.3)
+    return None
+
+
 def free_port(start: int = 8501) -> int:
     for port in range(start, start + 50):
         with socket.socket() as s:
@@ -94,36 +150,49 @@ def find_app_browser() -> str | None:
     return None
 
 
-def wait_for_server(port: int, timeout: float = 600) -> bool:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return True
-        time.sleep(0.3)
-    return False
-
-
-def open_window(url: str, port: int, home: Path) -> None:
-    """Abre a janela quando o servidor responder. Se for janela de aplicativo, fechá-la encerra o programa."""
-    if not wait_for_server(port):
-        print("O servidor não respondeu. Veja as mensagens acima.")
-        return
+def open_window(url: str, home: Path) -> subprocess.Popen | None:
+    """Abre a janela do aplicativo (ou o navegador padrão) na tela de "carregando", que vai para ``url`` assim que
+    o servidor responder."""
+    loading = home / "carregando.html"
+    loading.write_text(LOADING_PAGE.replace("__URL__", url), encoding="utf-8")
     browser = find_app_browser()
     if browser is None:
-        webbrowser.open(url)
-        print(f"Aberto no navegador: {url}\nPara sair, feche esta janela.")
-        return
-    # Um perfil só do V.E.R.D.E. faz o navegador abrir um processo próprio (em vez de entregar a página a uma
-    # janela já aberta e sair na hora): assim dá para saber quando o usuário fechou o aplicativo
-    profile = home / "janela"
-    proc = subprocess.Popen(
-        [browser, f"--app={url}", f"--user-data-dir={profile}", "--window-size=1320,880",
+        webbrowser.open(loading.as_uri())
+        return None
+    # Um perfil só do V.E.R.D.E. faz o navegador abrir um processo próprio, em vez de virar uma aba de uma janela
+    # já aberta
+    return subprocess.Popen(
+        [browser, f"--app={loading.as_uri()}", f"--user-data-dir={home / 'janela'}", "--window-size=1320,880",
          "--no-first-run", "--no-default-browser-check"],
     )
-    print(f"V.E.R.D.E. aberto ({url}). Fechar a janela do aplicativo encerra o programa.")
-    proc.wait()
-    os._exit(0)
+
+
+def active_sessions() -> int | None:
+    """Quantas janelas estão conectadas ao dashboard (None enquanto o Streamlit não subiu)."""
+    from streamlit.runtime import Runtime
+
+    if not Runtime.exists():
+        return None
+    manager = getattr(Runtime.instance(), "_session_mgr", None)  # só existe depois que o servidor subiu
+    return manager.num_active_sessions() if manager else None
+
+
+def exit_when_closed(proc: subprocess.Popen | None, idle_exit_s: float = IDLE_EXIT_S) -> None:
+    """Encerra o programa quando o usuário fecha a janela: na hora, se for a janela de aplicativo e ela durou (o
+    processo do navegador terminou), ou depois de ``idle_exit_s`` sem nenhuma janela conectada (navegador padrão,
+    ou o navegador entregou a janela a outro processo)."""
+    started, seen, idle_since = time.monotonic(), False, None
+    while True:
+        time.sleep(1)
+        if proc is not None and proc.poll() is not None and time.monotonic() - started > 10:
+            os._exit(0)
+        sessions = active_sessions()
+        if sessions:
+            seen, idle_since = True, None
+        elif seen and sessions == 0:
+            idle_since = idle_since or time.monotonic()
+            if time.monotonic() - idle_since > idle_exit_s:
+                os._exit(0)
 
 
 def run_dashboard(port: int) -> None:
@@ -162,13 +231,23 @@ def self_check() -> int:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    setup_logging(data_dir())
     home = prepare_environment()
     if "--check" in sys.argv:
         sys.exit(self_check())
+    lock = single_instance_lock(home)
+    if lock is None:  # já está aberto (ou abrindo): só mais uma janela, que espera o servidor dele
+        url = address_of_running(home)
+        if url:
+            open_window(url, home)
+        return
+    (home / "endereco.txt").unlink(missing_ok=True)
     port = free_port()
     url = f"http://127.0.0.1:{port}"
-    print("Iniciando o V.E.R.D.E.... na primeira vez pode levar até um minuto.")
-    threading.Thread(target=open_window, args=(url, port, home), daemon=True).start()
+    (home / "endereco.txt").write_text(url, encoding="utf-8")
+    print("Iniciando o V.E.R.D.E.... na primeira vez pode levar até um minuto.", flush=True)
+    proc = open_window(url, home)
+    threading.Thread(target=exit_when_closed, args=(proc,), daemon=True).start()
     run_dashboard(port)
 
 

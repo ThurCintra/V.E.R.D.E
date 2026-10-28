@@ -4,7 +4,7 @@
 
 Visão computacional com YOLOv8 que classifica resíduos nas **5 categorias da coleta seletiva brasileira**,
 conta cada item uma vez em vídeo, registra o histórico e calcula o impacto ambiental. Roda como aplicativo
-de Windows (`VERDE.exe`), pelo código-fonte ou em Docker.
+de Windows (instalador sem administrador), pelo código-fonte ou em Docker.
 
 | Categoria        | Cor (CONAMA 275/2001) |
 | ---------------- | --------------------- |
@@ -40,36 +40,44 @@ src/
 app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/views/, peças em app/ui.py
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
-desktop/                 aplicativo de desktop: lançador, ícone e receita do PyInstaller (VERDE.exe)
+desktop/                 aplicativo de desktop: lançador, ícone, PyInstaller (VERDE.exe) e instalador (Inno Setup)
 scripts/                 download dos modelos, imagens de teste e verificar_modelos.py
 ```
 
-## Aplicativo para Windows (VERDE.exe)
+## Aplicativo para Windows (instalador)
 
-Para quem só quer usar, sem instalar Python:
+Para quem só quer usar, sem instalar Python nem abrir o terminal:
 
-1. Baixe o `VERDE-windows.zip` na página **Releases** do repositório (ou em **Actions** → última execução de
-   *Gerar VERDE.exe (Windows)* → *Artifacts*).
-2. Extraia o .zip inteiro numa pasta e dê dois cliques em `VERDE.exe`.
-3. O V.E.R.D.E. abre numa janela própria (Edge ou Chrome em modo aplicativo, sem barra de endereço). Fechar a
-   janela encerra o programa. Sem Edge nem Chrome, ele abre no navegador padrão.
+1. Baixe o `VERDE-Instalador.exe` na página **Releases** do repositório.
+2. Dê dois cliques e siga as telas. **Não precisa ser administrador:** o programa é instalado só para o seu
+   usuário, em `%LOCALAPPDATA%\Programs\VERDE`, com atalhos no Menu Iniciar e (se quiser) na Área de Trabalho,
+   e aparece em *Aplicativos instalados* para desinstalar.
+3. O V.E.R.D.E. abre numa janela própria (Edge ou Chrome em modo aplicativo, sem barra de endereço), com uma tela
+   de "carregando" enquanto os modelos sobem. Fechar a janela encerra o programa; abrir de novo enquanto ele está
+   aberto só abre outra janela. Sem Edge nem Chrome, ele abre no navegador padrão.
+
+Na mesma Release há o `VERDE-portatil.zip`, a versão sem instalação: extraia e abra o `VERDE.exe`.
 
 O pacote já traz o detector com o vocabulário de resíduos (`verde_yoloworld.pt`), o `yolov8s.pt` e o
-classificador de material, então funciona sem internet. A webcam do computador funciona na aba **Ao vivo**.
-Os dados do usuário (histórico, correções, configurações) ficam em `%LOCALAPPDATA%\VERDE` e sobrevivem a
-uma atualização do programa. Uma `GEMINI_API_KEY` pode ir num arquivo `.env` ao lado do `VERDE.exe`.
+classificador de material, então funciona sem internet. A webcam do computador funciona em **Câmera contínua**.
+Os dados do usuário (histórico, correções, configurações) ficam em `%LOCALAPPDATA%\VERDE` e sobrevivem a uma
+atualização ou desinstalação; o `verde.log` dessa pasta mostra o que o programa fez. Uma `GEMINI_API_KEY` pode ir
+num arquivo `.env` nessa pasta.
 
-O Windows SmartScreen pode avisar "O Windows protegeu o computador", porque o executável não tem assinatura
+O Windows SmartScreen pode avisar "O Windows protegeu o computador", porque o instalador não tem assinatura
 digital paga: clique em **Mais informações → Executar assim mesmo**.
 
-### Gerando o .exe
+### Gerando o instalador
 
-O executável é gerado pelo GitHub Actions numa máquina Windows (`.github/workflows/build-windows.yml`):
+O GitHub Actions gera tudo numa máquina Windows (`.github/workflows/build-windows.yml`): o executável com o
+PyInstaller (`desktop/verde.spec`), o instalador com o Inno Setup (`desktop/verde.iss`) e um teste que instala
+sem administrador, abre o programa instalado (autoteste) e desinstala.
 
-- **Manual:** aba **Actions** → *Gerar VERDE.exe (Windows)* → **Run workflow**. O .zip sai em *Artifacts*.
-- **Versão:** `git tag v1.0.0 && git push origin v1.0.0` gera o .zip e cria uma Release com ele.
+- **Versão:** `git tag v1.0.0 && git push origin v1.0.0` gera e publica uma Release com os dois arquivos.
+- **Manual:** aba **Actions** → *Gerar instalador (Windows)* → **Run workflow**. Os arquivos saem em *Artifacts*.
 
-Para gerar no seu próprio Windows (o PyInstaller não gera .exe a partir de Linux ou Mac):
+Para gerar no seu próprio Windows (o PyInstaller não gera .exe a partir de Linux ou Mac), com o
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) instalado:
 
 ```powershell
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -77,12 +85,13 @@ pip install -r requirements.txt pyinstaller
 python scripts/download_model.py
 python -c "from src.open_vocab import build_vocabulary_model; build_vocabulary_model('yolo-world')"
 pyinstaller desktop/verde.spec --noconfirm
-dist\VERDE\VERDE.exe --check      # autoteste: carrega os modelos e analisa a foto de exemplo
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=1.0.0 desktop\verde.iss
 ```
 
-O resultado é a pasta `dist\VERDE\` (o `VERDE.exe` e a pasta `_internal`), com cerca de 1 GB por causa do
-PyTorch. É uma pasta, não um .exe único, porque um arquivo só teria de ser descompactado inteiro a cada
-abertura. `python desktop/verde.py` abre a mesma janela a partir do código-fonte.
+O executável vai para `dist\VERDE\` (o `VERDE.exe` e a pasta `_internal`, cerca de 1 GB por causa do PyTorch) e o
+instalador para `dist\instalador\VERDE-Instalador.exe`. `VERDE.exe --check` é um autoteste que carrega os modelos,
+analisa a foto de exemplo e grava o resultado no `verde.log`. `python desktop/verde.py` abre a mesma janela a
+partir do código-fonte.
 
 ## Como rodar (código-fonte)
 

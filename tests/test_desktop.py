@@ -46,8 +46,23 @@ def test_porta_livre_pula_a_ocupada(verde):
         assert verde.free_port(port) != port
 
 
-def test_servidor_que_nao_sobe(verde):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]  # reservada, mas sem listen: ninguém responde
-        assert verde.wait_for_server(port, timeout=0.5) is False
+def test_so_uma_copia_do_programa_por_vez(verde, tmp_path):
+    home = tmp_path / "usuario"
+    first = verde.single_instance_lock(home)
+    assert first is not None
+    assert verde.single_instance_lock(home) is None  # a segunda cópia só abre uma janela
+    (home / "endereco.txt").write_text("http://127.0.0.1:8502\n")
+    assert verde.address_of_running(home, wait_s=0.1) == "http://127.0.0.1:8502"
+    first.close()  # a primeira terminou
+    assert verde.single_instance_lock(home) is not None
+
+
+def test_tela_de_carregando_aponta_para_o_servidor(verde, tmp_path, monkeypatch):
+    monkeypatch.setattr(verde, "find_app_browser", lambda: None)
+    opened = []
+    monkeypatch.setattr(verde.webbrowser, "open", opened.append)
+    home = tmp_path / "usuario"
+    home.mkdir()
+    assert verde.open_window("http://127.0.0.1:8599", home) is None
+    page = (home / "carregando.html").read_text(encoding="utf-8")
+    assert 'const url="http://127.0.0.1:8599"' in page and opened == [(home / "carregando.html").as_uri()]
