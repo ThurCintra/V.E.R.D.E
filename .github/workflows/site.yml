@@ -32,7 +32,12 @@ jobs:
       - name: Dependências do site (app/requirements.txt)
         run: |
           pip install uv
-          uv pip install --system -r app/requirements.txt
+          uv pip install --system -r app/requirements.txt 2>&1 | tee uv.log; status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Instalação::$(tail -25 uv.log | tr '\n' '|' | cut -c1-3000)"
+            exit "$status"
+          fi
+          echo "::notice title=Versões::$(python -c 'import torch, torchvision, ultralytics, streamlit as st; print(f"torch {torch.__version__}, torchvision {torchvision.__version__}, ultralytics {ultralytics.__version__}, streamlit {st.__version__}")')"
 
       - name: Subir o dashboard como no site público
         env:
