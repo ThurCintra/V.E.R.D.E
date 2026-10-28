@@ -42,7 +42,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: datasets/taco_cenas
-          key: taco-cenas-1280-v1
+          key: taco-cenas-1280-v2
 
       - name: Avaliar
         run: |

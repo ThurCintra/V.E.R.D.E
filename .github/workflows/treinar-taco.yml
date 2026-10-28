@@ -1,0 +1,80 @@
+# Ajuste fino do classificador de material com recortes reais do TACO (.github/scripts/train_taco.py). O candidato
+# vai para a branch "modelo-taco" (models/material_cls_taco.pt + reports/material_taco.json), para ser conferido
+# antes de virar o modelo do sistema; a tabela de resultados vira um check do commit.
+name: Treinar com o TACO
+
+on:
+  workflow_dispatch:
+    inputs:
+      scene_settings:
+        description: "Pós-processamentos medidos nas cenas (lista JSON de atributos do Detector; vazio: o padrão do script)"
+        default: ""
+  push:
+    paths:
+      - ".github/workflows/treinar-taco.yml"
+      - ".github/scripts/train_taco.py"
+
+permissions:
+  contents: write
+  checks: write
+
+jobs:
+  treinar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências
+        run: |
+          sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+          pip install uv
+          uv pip install --system -r app/requirements.txt
+
+      - name: Fotos do TACO (guardadas entre execuções)
+        uses: actions/cache@v4
+        with:
+          path: datasets/taco_cenas
+          key: taco-cenas-1280-v2
+
+      - name: Dataset TrashNet + TrashBox (guardado entre execuções)
+        uses: actions/cache@v4
+        with:
+          path: datasets/material
+          key: material-trashnet-trashbox-v1
+
+      - name: Treinar e medir
+        env:
+          SCENE_SETTINGS: ${{ github.event.inputs.scene_settings }}
+        run: |
+          set -o pipefail
+          python .github/scripts/train_taco.py treino.md 2>&1 | tee treino.log
+
+      - name: Guardar o candidato na branch modelo-taco
+        if: success() && hashFiles('models/material_cls_taco.pt') != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B modelo-taco
+          git add -f models/material_cls_taco.pt reports/material_taco.json
+          git commit -m "Candidato: classificador de material ajustado com o TACO" -m "Gerado pelo workflow Treinar com o TACO (${GITHUB_SHA::7})."
+          git push -f origin modelo-taco
+
+      - name: Publicar o resultado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'EOF'
+          import json, os, pathlib
+          md, log = pathlib.Path("treino.md"), pathlib.Path("treino.log")
+          text = md.read_text() if md.is_file() else "O treino falhou:\n\n```\n" + (log.read_text()[-6000:] if log.is_file() else "") + "\n```"
+          json.dump({"name": "Resultado: treino com o TACO", "head_sha": os.environ["GITHUB_SHA"],
+                     "status": "completed", "conclusion": "neutral",
+                     "output": {"title": "Treino com o TACO", "summary": text[:65000]}}, open("payload.json", "w"))
+          EOF
+          gh api repos/${{ github.repository }}/check-runs --method POST --input payload.json > /dev/null
