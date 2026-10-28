@@ -80,6 +80,13 @@ def test_modelo_do_hugging_face_sem_rotulos_de_material_e_recusado():
 
 
 def test_sem_hugging_face_usa_o_especialista_local(monkeypatch, material_model):
+    import src.material_classifier as mc
+
+    # Sem WASTE_HF_MODEL, nem tenta o Hugging Face (o padrão é o classificador local, o que foi medido)
+    monkeypatch.delenv("WASTE_HF_MODEL", raising=False)
+    monkeypatch.setattr(mc, "HFTextureExpert", lambda *a, **k: pytest.fail("não devia tentar o Hugging Face"))
+    assert isinstance(load_texture_expert(), LocalTextureExpert)
+    monkeypatch.undo()
     monkeypatch.setenv("WASTE_HF_MODEL", "nao-existe/modelo-inexistente")
     assert isinstance(load_texture_expert(), LocalTextureExpert)
     monkeypatch.setenv("WASTE_HF_MODEL", "off")

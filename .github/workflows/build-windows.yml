@@ -57,7 +57,6 @@ jobs:
         # O VERDE.exe não tem console: o resultado vai para verde.log na pasta de dados (aqui, uma temporária)
         run: |
           $env:LOCALAPPDATA = "$env:RUNNER_TEMP\dados-exe"
-          $env:WASTE_HF_MODEL = "off"
           $p = Start-Process dist\VERDE\VERDE.exe -ArgumentList "--check" -Wait -PassThru
           Get-Content "$env:LOCALAPPDATA\VERDE\verde.log"
           if ($p.ExitCode -ne 0) { throw "Autoteste falhou (código $($p.ExitCode))" }
@@ -84,7 +83,6 @@ jobs:
           if (-not (Test-Path $key)) { throw "A instalação não ficou registrada para o usuário atual" }
           $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\V.E.R.D.E..lnk"
           if (-not (Test-Path $menu)) { throw "Atalho do Menu Iniciar não foi criado" }
-          $env:WASTE_HF_MODEL = "off"
           $c = Start-Process "$app\VERDE.exe" -ArgumentList "--check" -Wait -PassThru
           Get-Content "$env:LOCALAPPDATA\VERDE\verde.log"
           if ($c.ExitCode -ne 0) { throw "O programa instalado falhou no autoteste" }
