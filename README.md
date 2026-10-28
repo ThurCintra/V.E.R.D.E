@@ -108,8 +108,8 @@ conta do GitHub (não precisa de conta nova):
    **Main file path** `app/dashboard.py` · **App URL**: o endereço que quiser (ex.: `verde-residuos`).
 4. **Advanced settings** → **Python version** `3.12` → **Save** → **Deploy**.
 
-A primeira instalação leva alguns minutos (o PyTorch é grande). O Streamlit Cloud usa o `app/requirements.txt` (só o
-que o dashboard precisa) e o `packages.txt`. Depois, cada push na branch atualiza o site sozinho.
+A primeira instalação leva alguns minutos. O Streamlit Cloud usa o `app/requirements.txt` (só o que o dashboard
+precisa, com o PyTorch sem CUDA, bem menor) e o `packages.txt`. Depois, cada push na branch atualiza o site sozinho.
 
 No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (várias pessoas no mesmo servidor):
 
@@ -121,9 +121,11 @@ No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (vária
   visitantes no servidor); as configurações valem só para cada visitante, e as correções, só para a foto na tela;
 - o **Meu impacto** soma os registros de todos os visitantes e é apagado quando o site reinicia.
 
-Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem cerca de
-1 GB de memória garantido. O workflow `.github/workflows/site.yml` simula o Streamlit Cloud a cada mudança (instala só
-o `app/requirements.txt`, analisa a foto de exemplo num navegador) e mede a memória usada.
+Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem de 690 MB
+(garantidos) a 2,7 GB de memória, segundo a documentação do Streamlit. O site usa cerca de 815 MB no pico, ao analisar
+uma foto (com o PyTorch do PyPI, que traz o CUDA, eram 1,3 GB). O workflow `.github/workflows/site.yml` simula o
+Streamlit Cloud a cada mudança (instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador) e mede a
+memória usada.
 
 A API REST não roda no Streamlit Cloud. Para o sistema inteiro online (dashboard + API), é preciso uma hospedagem com
 Docker, como um Space do Hugging Face (que passou a exigir o plano PRO para Docker) ou um servidor próprio com o
