@@ -123,7 +123,7 @@ No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (vária
 - o **Meu impacto** soma os registros de todos os visitantes e é apagado quando o site reinicia.
 
 Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem de 690 MB
-(garantidos) a 2,7 GB de memória, segundo a documentação do Streamlit. O site usa cerca de 815 MB no pico, ao analisar
+(garantidos) a 2,7 GB de memória, segundo a documentação do Streamlit. O site usa de 815 a 860 MB no pico, ao analisar
 uma foto (com o PyTorch do PyPI, que traz o CUDA, eram 1,3 GB). O workflow `.github/workflows/site.yml` simula o
 Streamlit Cloud a cada mudança: instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador, mede a
 memória e roda o teste do TrashNet com o sistema do site, que precisa dar o mesmo acerto do relatório.
