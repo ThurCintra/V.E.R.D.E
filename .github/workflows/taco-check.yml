@@ -1,0 +1,26 @@
+# Confere se as fotos do TACO batem com as anotações (orientação e tamanho) antes de usá-las na avaliação.
+name: Conferir as fotos do TACO
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/taco-check.yml"
+      - ".github/scripts/taco_check.py"
+
+jobs:
+  conferir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências
+        run: |
+          sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+          pip install uv
+          uv pip install --system -r app/requirements.txt
+      - name: Conferir
+        run: python .github/scripts/taco_check.py 150
