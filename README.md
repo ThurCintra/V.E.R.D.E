@@ -48,7 +48,8 @@ scripts/                 download dos modelos, imagens de teste e verificar_mode
 
 Para quem só quer usar, sem instalar Python nem abrir o terminal:
 
-1. Baixe o `VERDE-Instalador.exe` na página **Releases** do repositório.
+1. Baixe o `VERDE-Instalador.exe` na página **Releases** do repositório (ou em **Actions** → última execução de
+   *Gerar instalador (Windows)* → *Artifacts*).
 2. Dê dois cliques e siga as telas. **Não precisa ser administrador:** o programa é instalado só para o seu
    usuário, em `%LOCALAPPDATA%\Programs\VERDE`, com atalhos no Menu Iniciar e (se quiser) na Área de Trabalho,
    e aparece em *Aplicativos instalados* para desinstalar.
@@ -73,8 +74,10 @@ O GitHub Actions gera tudo numa máquina Windows (`.github/workflows/build-windo
 PyInstaller (`desktop/verde.spec`), o instalador com o Inno Setup (`desktop/verde.iss`) e um teste que instala
 sem administrador, abre o programa instalado (autoteste) e desinstala.
 
-- **Versão:** `git tag v1.0.0 && git push origin v1.0.0` gera e publica uma Release com os dois arquivos.
-- **Manual:** aba **Actions** → *Gerar instalador (Windows)* → **Run workflow**. Os arquivos saem em *Artifacts*.
+- **A cada push** que muda o aplicativo (`app/`, `src/`, `desktop/`, o modelo…), em qualquer branch: os arquivos
+  saem em *Artifacts* da execução (aba **Actions**).
+- **Versão:** `git tag v1.0.0 && git push origin v1.0.0` também publica uma Release com os dois arquivos.
+- **Manual:** aba **Actions** → *Gerar instalador (Windows)* → **Run workflow**.
 
 Para gerar no seu próprio Windows (o PyInstaller não gera .exe a partir de Linux ou Mac), com o
 [Inno Setup 6](https://jrsoftware.org/isinfo.php) instalado:

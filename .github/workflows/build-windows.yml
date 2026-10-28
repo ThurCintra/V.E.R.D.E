@@ -1,13 +1,23 @@
 # Gera o instalador do V.E.R.D.E. para Windows numa máquina do GitHub, testa e publica.
 #
-# - Com uma tag de versão (git tag v1.0.0 && git push origin v1.0.0): cria uma Release com o instalador.
-# - Manualmente: aba Actions → "Gerar instalador (Windows)" → Run workflow. Os arquivos ficam em "Artifacts".
+# - A cada push que muda o aplicativo (qualquer branch): os arquivos ficam em "Artifacts" da execução.
+# - Com uma tag de versão (git tag v1.0.0 && git push origin v1.0.0): também cria uma Release com o instalador.
+# - Manualmente: aba Actions → "Gerar instalador (Windows)" → Run workflow.
 name: Gerar instalador (Windows)
 
 on:
   workflow_dispatch:
   push:
-    tags: ["v*"]
+    branches: ["**"]
+    tags: ["v*"]  # tags sempre disparam: o GitHub não aplica o filtro de paths a elas
+    paths:
+      - "app/**"
+      - "src/**"
+      - "desktop/**"
+      - "models/material_cls.pt"
+      - "requirements.txt"
+      - "LEIA-ME-WINDOWS.txt"
+      - ".github/workflows/build-windows.yml"
 
 permissions:
   contents: write  # para anexar os arquivos à Release
