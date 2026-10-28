@@ -52,6 +52,10 @@ from src.weights import resolve
 log = logging.getLogger(__name__)
 
 MODES = {"rapido": "Rápido", "alta": "Alta precisão", "ultra": "Ultra precisão"}
+# Detector de uma classe só (treinado no TACO: acha o lixo, e a textura decide o material). Antes da textura, o voto
+# do detector é a frequência de cada categoria entre os resíduos do TACO.
+AGNOSTIC_LABEL = "residuo"
+AGNOSTIC_PRIOR = {"Plástico": 0.528, "Papel": 0.107, "Metal": 0.129, "Vidro": 0.06, "Orgânico/Rejeito": 0.177}
 DEEP_SCAN_RANGE = (0.35, 0.60)  # confiança "duvidosa" que dispara o Deep Scan automático
 BACKGROUND_MIN_CHANGE = 0.15  # com o fundo calibrado, caixas com menos de 15% de mudança são o próprio fundo
 
@@ -263,6 +267,9 @@ class Detector:
         if self.is_open_vocab:
             category = VOCAB_CATEGORY.get(label)
             return category, DEFAULT_WEIGHT_G[category] if category else 0.0
+        if label == AGNOSTIC_LABEL:
+            category = max(AGNOSTIC_PRIOR, key=AGNOSTIC_PRIOR.get)
+            return category, DEFAULT_WEIGHT_G[category]
         if not self.is_coco:
             category = category_from_name(label)
             return category.name, DEFAULT_WEIGHT_G[category.name]
@@ -310,7 +317,10 @@ class Detector:
                 continue  # resíduo "do tamanho da imagem" é parede, mesa ou o próprio corpo; minúsculo é ruído
             if self.calibration and self.calibration.foreground_ratio(image, box) < BACKGROUND_MIN_CHANGE:
                 continue  # é o fundo calibrado
-            probs = shape_vote(category, float(p)) if category else None
+            if label == AGNOSTIC_LABEL:
+                probs = dict(AGNOSTIC_PRIOR)
+            else:
+                probs = shape_vote(category, float(p)) if category else None
             detections.append(Detection(label, float(p), box, category, weight, probs=probs))
 
         if self.texture and self.mode != "rapido":

@@ -255,6 +255,40 @@ def prepare_taco_scenes(
     return index
 
 
+def prepare_taco_detection(index: str | Path, out_dir: str | Path = DATASETS_DIR / "taco_deteccao") -> Path:
+    """As cenas de treino e validação do TACO no formato do ``yolo detect``, com uma classe só, "residuo": o detector
+    aprende *onde* está o lixo (inclusive o "Unlabeled litter"), e o especialista de textura decide o material.
+    Devolve o data.yaml."""
+    import cv2
+
+    from src.detector import AGNOSTIC_LABEL
+
+    out_dir = Path(out_dir)
+    index = Path(index)
+    scenes = json.loads(index.read_text(encoding="utf-8"))["scenes"]
+    for scene in scenes:
+        if scene["split"] not in ("train", "val"):
+            continue
+        src = index.parent / scene["file"]
+        h, w = cv2.imread(str(src)).shape[:2]
+        image = out_dir / "images" / scene["split"] / src.name
+        image.parent.mkdir(parents=True, exist_ok=True)
+        if not image.exists():
+            try:
+                os.link(src, image)
+            except OSError:
+                shutil.copyfile(src, image)
+        lines = [f"0 {(x1 + x2) / 2 / w:.6f} {(y1 + y2) / 2 / h:.6f} {(x2 - x1) / w:.6f} {(y2 - y1) / h:.6f}"
+                 for x1, y1, x2, y2 in (o["box"] for o in scene["objects"]) if x2 > x1 and y2 > y1]
+        label = out_dir / "labels" / scene["split"] / f"{src.stem}.txt"
+        label.parent.mkdir(parents=True, exist_ok=True)
+        label.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    data_yaml = out_dir / "data.yaml"
+    data_yaml.write_text(yaml.safe_dump({"path": str(out_dir.resolve()), "train": "images/train", "val": "images/val",
+                                         "names": {0: AGNOSTIC_LABEL}}, allow_unicode=True), encoding="utf-8")
+    return data_yaml
+
+
 def taco_material_class(taco_name: str) -> str:
     """Classe do classificador de material para um objeto do TACO (caixas e tubos de papelão são "cardboard")."""
     category = category_from_name(taco_name).name

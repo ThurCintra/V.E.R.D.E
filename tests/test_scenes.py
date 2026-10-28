@@ -92,3 +92,25 @@ def test_prepara_as_cenas_do_taco(tmp_path):
     assert first["objects"][0] == {"box": [5.0, 10.0, 25.0, 40.0], "category": "Plástico", "taco": "Plastic bottle"}
     assert first["objects"][-1]["category"] is None  # Unlabeled litter: material desconhecido
     assert len(scene_items(index, "train")) + len(scene_items(index, "val")) + len(scene_items(index, "test")) == 9
+
+
+def test_prepara_a_deteccao_com_uma_classe_so(tmp_path):
+    from src.train import prepare_taco_detection
+
+    ann, images_dir = fake_taco(tmp_path, n_images=10)
+    (images_dir / "annotations.json").write_text(ann.read_text())
+    index = prepare_taco_scenes(tmp_path / "cenas", raw_dir=images_dir)
+    data = prepare_taco_detection(index, tmp_path / "det")
+
+    assert "residuo" in data.read_text()
+    labels = sorted((tmp_path / "det" / "labels").rglob("*.txt"))
+    assert labels and all(len(p.read_text().split("\n")) == 3 for p in labels)  # 2 objetos por foto
+    assert labels[0].read_text().split("\n")[0] == "0 0.234375 0.520833 0.312500 0.625000"
+    test_scenes = len(scene_items(index, "test"))
+    assert len(list((tmp_path / "det" / "images").rglob("*.jpg"))) == 10 - test_scenes  # o teste fica de fora
+
+
+def test_detector_de_uma_classe_vota_pela_frequencia_do_taco(detector):
+    from src.detector import AGNOSTIC_LABEL
+
+    assert detector._shape_category(AGNOSTIC_LABEL) == ("Plástico", 25)

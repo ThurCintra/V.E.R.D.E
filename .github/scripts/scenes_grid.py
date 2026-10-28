@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.detector import Detector  # noqa: E402
 from src.evaluate import evaluate_crops, evaluate_scenes, scene_items  # noqa: E402
+from src.paths import MODELS_DIR  # noqa: E402
 from src.train import prepare_taco_scenes  # noqa: E402
 
 FLOOR = 0.05
@@ -61,8 +62,15 @@ class CachedTexture:
 
 def configs(kind: str) -> list[dict]:
     ignore = [frozenset(), frozenset({"bowl"})] if kind == "coco" else [frozenset()]
-    grid = itertools.product([0.25, 0.35, 0.45, 0.55], [None, 0.7], [(0.4, 0.6), (0.6, 0.4)], ignore)
+    grid = itertools.product([0.25, 0.15, 0.35, 0.45, 0.55], [None, 0.7], [(0.4, 0.6), (0.6, 0.4)], ignore)
     return [{"conf": c, "merge_overlap": m, "weights": w, "ignore_labels": i} for c, m, w, i in grid]
+
+
+def load(kind: str) -> Detector:
+    """``taco``: o detector de uma classe só treinado nas cenas do TACO (workflow treinar-detector.yml)."""
+    if kind == "taco":
+        return Detector(model_path=MODELS_DIR / "residuos_taco.pt")
+    return Detector(detector_kind=kind)
 
 
 def describe(cfg: dict) -> str:
@@ -89,7 +97,7 @@ def main(out: str, kinds: list[str]) -> None:
     summary = {}
     for kind in kinds:
         start = time.time()
-        det = Detector(detector_kind=kind)
+        det = load(kind)
         det.model, det.texture = CachedModel(det.model), CachedTexture(det.texture)
         if kind == kinds[0]:
             crops = {split: evaluate_crops(det.texture, items) for split, items in (("val", val), ("test", test))}
