@@ -8,6 +8,10 @@ from src.corrections import MIN_CORRECTIONS, CorrectionStore, previous_model_pat
 
 ui.hero("Ensinar o sistema", "Cada correção que você faz vira um exemplo. Com elas, o V.E.R.D.E. aprende a acertar mais.")
 
+if paths.PUBLIC:  # no site, o re-treino trocaria o modelo de todos os visitantes e ocuparia o servidor por minutos
+    ui.public_notice("No site público, as correções valem só para a foto na tela, e o re-treino fica desligado.")
+    st.stop()
+
 store = CorrectionStore(paths.CORRECTIONS_DIR)
 summary = store.summary()
 usable = len(store.items())

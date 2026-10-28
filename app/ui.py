@@ -62,13 +62,15 @@ def _settings_file():
 
 
 def settings() -> dict:
-    """Configurações do usuário, guardadas em storage/configuracoes.json (valem depois de reiniciar)."""
+    """Configurações do usuário, guardadas em storage/configuracoes.json (valem depois de reiniciar). No site
+    público, valem só para a sessão de cada visitante: o arquivo seria o mesmo para todos."""
     if "_cfg" not in st.session_state:
         cfg = dict(DEFAULTS)
-        try:
-            cfg.update(json.loads(_settings_file().read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            pass
+        if not paths.PUBLIC:
+            try:
+                cfg.update(json.loads(_settings_file().read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
         st.session_state["_cfg"] = cfg
     return st.session_state["_cfg"]
 
@@ -76,8 +78,29 @@ def settings() -> dict:
 def save_setting(name: str, value) -> None:
     cfg = settings()
     cfg[name] = value
+    if paths.PUBLIC:
+        return
     _settings_file().parent.mkdir(parents=True, exist_ok=True)
     _settings_file().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def public_notice(feature: str) -> None:
+    """Aviso de recurso que só existe no aplicativo instalado (no site, ele mudaria o sistema de todos)."""
+    st.info(f"{feature} Para usar, instale o [aplicativo para Windows]({paths.DESKTOP_APP_URL}).", icon="💻")
+
+
+class _SessionOnlyCorrections:
+    """No site público, a correção vale só para a foto na tela: o recorte não fica guardado no servidor."""
+
+    def add(self, *args, **kwargs) -> None:
+        return None
+
+    def remove(self, path) -> None:
+        pass
+
+
+def correction_store():
+    return _SessionOnlyCorrections() if paths.PUBLIC else CorrectionStore(paths.CORRECTIONS_DIR)
 
 
 def detector() -> Detector:
@@ -127,6 +150,10 @@ def calibration_panel(current_frame=None) -> None:
                                "(e piorou um pouco com vários objetos): ligue só se ajudar no seu caso.")
         if boost != cfg["realce"]:
             save_setting("realce", boost)
+        if paths.PUBLIC:  # a calibração fica no detector, que é um só para todos os visitantes
+            st.caption("Zerar o fundo da câmera fica só no aplicativo instalado.")
+            st.caption(f"Motor: {det.description}")
+            return
         st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
                    "realce de contraste se ajusta à luz.")
         if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None):
@@ -282,7 +309,7 @@ def _fmt(name: str) -> str:
     return f"{EMOJI[name]} {name.split('/')[0]}"
 
 
-def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
+def _on_pick(store, image, det, i: int, key: str) -> None:
     """O usuário tocou numa categoria: guarda a correção (ou desfaz, se voltou à original)."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
     picked = st.session_state[f"pick_{key}_{i}_{det.category}"]
@@ -295,7 +322,7 @@ def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
 def _items_with_corrections(image, detections, key: str):
     """Lista os itens, cada um com os botões de categoria. Devolve as detecções corrigidas."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
-    store = CorrectionStore(paths.CORRECTIONS_DIR)
+    store = correction_store()
     st.markdown("**Itens encontrados** · <span class='verde-muted'>errou? toque na categoria certa</span>",
                 unsafe_allow_html=True)
     for i, det in enumerate(detections):
@@ -306,7 +333,8 @@ def _items_with_corrections(image, detections, key: str):
                 name = label_pt(det.label).capitalize()
                 state = ""
                 if i in fixes:
-                    state = " · ✅ correção salva" if fixes[i][0] != det.category else " · ✅ confirmado"
+                    fixed = "corrigido" if paths.PUBLIC else "correção salva"
+                    state = f" · ✅ {fixed}" if fixes[i][0] != det.category else " · ✅ confirmado"
                 st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>" + prob_bar(det)
                             + scan_note(det), unsafe_allow_html=True)
                 st.pills(
@@ -319,7 +347,8 @@ def _items_with_corrections(image, detections, key: str):
     pending = [i for i in range(len(detections)) if i not in fixes]
     if pending and st.button(
         f"👍 Os outros {len(pending)} estão certos" if len(pending) < len(detections) else "👍 Está tudo certo",
-        key=f"ok_{key}", help="Confirma os itens que você não corrigiu. Isso também ensina o sistema.",
+        key=f"ok_{key}", help="Confirma os itens que você não corrigiu."
+        + ("" if paths.PUBLIC else " Isso também ensina o sistema."),
     ):
         for i in pending:
             det = detections[i]
