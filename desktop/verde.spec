@@ -1,4 +1,5 @@
 # PyInstaller: gera dist/VERDE/ com o VERDE.exe e a pasta _internal/ (Python, PyTorch, modelos e o dashboard).
+# O instalador (desktop/verde.iss) empacota essa pasta.
 #
 #     pyinstaller desktop/verde.spec --noconfirm
 #
@@ -76,7 +77,7 @@ exe = EXE(
     exclude_binaries=True,
     name="VERDE",
     icon=str(ROOT / "desktop" / "verde.ico"),
-    console=True,  # a janela de console mostra o progresso enquanto os modelos carregam
+    console=False,  # aplicativo de janela: as mensagens vão para %LOCALAPPDATA%\VERDE\verde.log
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="VERDE", upx=False)
