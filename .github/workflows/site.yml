@@ -37,7 +37,8 @@ jobs:
             echo "::error title=Instalação::$(tail -25 uv.log | tr '\n' '|' | cut -c1-3000)"
             exit "$status"
           fi
-          echo "::notice title=Versões::$(python -c 'import torch, torchvision, ultralytics, streamlit as st; print(f"torch {torch.__version__}, torchvision {torchvision.__version__}, ultralytics {ultralytics.__version__}, streamlit {st.__version__}")')"
+          # tail: na primeira importação, o ultralytics escreve antes que criou o arquivo de configurações
+          echo "::notice title=Versões::$(python -c 'import torch, torchvision, ultralytics, streamlit as st; print(f"torch {torch.__version__} (CUDA: {torch.version.cuda}), torchvision {torchvision.__version__}, ultralytics {ultralytics.__version__}, streamlit {st.__version__}")' | tail -1)"
 
       - name: Subir o dashboard como no site público
         env:
