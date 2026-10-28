@@ -27,7 +27,8 @@ src/
   material.py            recorte e classificador local (usado pelo re-treino e pela avaliação)
   recycling.py           categorias, cores, mapeamento COCO e por nome de classe
   pipeline.py            detecção → rastreamento → histórico, frame a frame
-  train.py               fine-tuning (TACO, TrashNet, Roboflow ou data.yaml próprio)
+  train.py               fine-tuning (TACO, TrashNet + TrashBox, Roboflow ou data.yaml próprio)
+  dedup.py               fotos repetidas entre treino e teste (para a avaliação não mentir)
   evaluate.py            acurácia, mAP e matrizes de confusão (relatórios em reports/)
   review.py              guarda os casos duvidosos, já rotulados, para revisão humana
   corrections.py         correções do usuário e re-treino do classificador com elas
@@ -119,7 +120,7 @@ streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista de textura ──► 3. Estabilização ──► lixeira
                YOLO-World + vocabulário      recorte de cada objeto         ByteTrack (id)
                de resíduos, CLAHE, filtro    ViT do Hugging Face ou         EMA de 12 quadros
-               de tamanho, sem pessoas       YOLOv8-cls TrashNet local      Deep Scan (Gemini
+               de tamanho, sem pessoas       YOLO11-cls TrashNet+TrashBox   Deep Scan (Gemini
                                              40% forma + 60% textura         ou análise local)
 ```
 
@@ -136,8 +137,8 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
   ignorado, e o realce se ajusta à luz.
 - **Estágio 2** (`src/material_classifier.py`): cada recorte passa por um classificador de textura. Com
   `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face) usa o `transformers`; sem ele, ou se
-  o modelo não puder ser baixado, usa o YOLOv8-cls treinado no TrashNet que vem no repositório. O resultado é
-  combinado com o detector: 40% forma, 60% textura.
+  o modelo não puder ser baixado, usa o YOLO11-cls treinado no TrashNet + TrashBox que vem no repositório. O
+  resultado é combinado com o detector: 40% forma, 60% textura.
 - **Estágio 3** (`src/temporal.py`, `src/deep_scan.py`): veja *Rastreamento em vídeo*. No modo Ultra, um objeto
   com certeza entre 35% e 60% parado no centro por 1,5 s (ou todos, com a opção ligada) vai para o **Deep Scan**
   numa thread separada: o Gemini 2.5 Flash (se `GEMINI_API_KEY` estiver no `.env`; veja `.env.example`) ou uma
@@ -151,8 +152,10 @@ Hugging Face → classificador local; sem Gemini → análise local.
 
 ### O que cada estágio rende (medido)
 
-Conjunto de teste do TrashNet (379 fotos fora do treino, um objeto por foto, quase sempre de perto). O YOLO-World
-não entra na tabela: o ambiente onde ela foi feita não alcança o CLIP; o YOLOE, da mesma família, sim.
+Conjunto de teste do TrashNet (379 fotos fora do treino, um objeto por foto, quase sempre de perto), com o
+classificador **anterior** (só TrashNet): a tabela mostra o que cada estágio acrescenta. Com o classificador atual e
+em fotos variadas, veja *Resultados medidos*. O YOLO-World não entra na tabela: o ambiente onde ela foi feita não
+alcança o CLIP; o YOLOE, da mesma família, sim.
 
 | Configuração | Modo "1 objeto por foto" | Modo normal |
 | --- | --- | --- |
@@ -167,8 +170,8 @@ não entra na tabela: o ambiente onde ela foi feita não alcança o CLIP; o YOLO
 - O vocabulário aberto (YOLOE) ganha do COCO no modo normal (89,5% contra 84,4%): ele conhece latas, caixas
   longa vida e tampinhas.
 - **Plano B da foto inteira:** no modo normal, se nada for achado (foto de perto: o objeto ocupa a foto toda, o
-  detector não o isola ou o filtro de 70% o descarta), a foto inteira vai para a textura, com pelo menos 60% de
-  certeza. Foi o que levou o modo normal de 31,4% para 89,5%. No vídeo ele fica desligado.
+  detector não o isola ou o filtro de 70% o descarta), a foto inteira vai para a textura, se ela tiver certeza
+  suficiente (`WASTE_MATERIAL_CONF`). Foi o que levou o modo normal de 31,4% para 89,5%. No vídeo ele fica desligado.
 - **CLAHE:** empatou no modo de 1 objeto e tirou 6 pontos do modo normal com o YOLOE (31,4% → 25,6%). Por isso vem
   **desligado**; ligue em *Realce de contraste* no painel se a sua cena for escura ou tiver muito reflexo.
 - Numa foto de pilha de lixo misturado, o motor novo acha objetos que o anterior não via (caixa longa vida,
@@ -201,37 +204,65 @@ de cada classe vira categoria (`Plastic bottle` → Plástico, `Drink can` → M
 ### 2ª etapa: classificador de material
 
 O detector acha *onde* está cada objeto; o classificador de material (`models/material_cls.pt`, treinado no
-TrashNet e já incluído no repositório) olha o recorte e decide *de que material* ele é: papelão, papel, vidro,
-metal, plástico ou rejeito. Ele reavalia só os objetos de material ambíguo (garrafa, copo, pote, vaso, talheres,
-livro…); comida e eletrônicos ficam com o mapeamento do COCO. A categoria só muda quando o classificador tem
-pelo menos 60% de certeza (`WASTE_MATERIAL_CONF`); abaixo disso, o palpite fica registrado no campo `material`
-e o caso vai para revisão.
+TrashNet + TrashBox e já incluído no repositório) olha o recorte e decide *de que material* ele é: papelão, papel,
+vidro, metal, plástico ou rejeito (que inclui lixo eletrônico e hospitalar). Com o COCO, ele reavalia só os objetos
+de material ambíguo (garrafa, copo, pote, vaso, talheres, livro…); comida e eletrônicos ficam com o mapeamento do
+COCO. A categoria de cada recorte sai da mistura com o voto do detector (40% forma, 60% textura); um material com
+menos de 60% de certeza fica registrado no campo `material` e o caso vai para revisão.
 
 **Modo lixeira (1 item por foto):** numa lixeira com câmera fixa, cada foto tem um resíduo só. Com
-`single_item` ligado (no dashboard, na API ou com `WASTE_SINGLE_ITEM=1`), se o detector não achar nada, a foto
-inteira passa pelo classificador. É o modo que mais acerta quando a captura é controlada.
+`single_item` ligado (no dashboard, na API ou com `WASTE_SINGLE_ITEM=1`), a foto inteira passa pelo classificador
+e, se ele tiver pelo menos 50% de certeza na categoria (`WASTE_MATERIAL_CONF`), decide a lixeira; o detector só dá a
+posição do objeto. É o modo que mais acerta quando a captura é controlada.
 
 ### Resultados medidos
 
-Conjunto de teste do TrashNet: 379 fotos que nenhum modelo viu no treino, um objeto por foto
-(`python -m src.evaluate material` e `python -m src.evaluate system`):
+Dois testes com fotos que nenhum modelo viu no treino (`python -m src.evaluate material` e `system`; os relatórios
+e as matrizes de confusão estão em `reports/`):
 
-| O que foi medido                                   | Acerto   |
-| -------------------------------------------------- | -------- |
-| Sistema só com o COCO (antes)                      | 15,3%    |
-| Sistema com o classificador de material, modo lixeira | **93,7%** |
-| Classificador sozinho, nas 6 classes do TrashNet  | 93,9%    |
-| Classificador sozinho, nas 5 categorias da coleta | 95,2%    |
+- **TrashNet** (379 fotos): um objeto sobre fundo branco, de perto, como numa lixeira com câmera fixa.
+- **TrashBox** (1.793 fotos): fotos da internet com fundos, ângulos e luz variados, objetos amassados, pilhas, lixo
+  eletrônico e hospitalar. Bem mais perto do que uma câmera comum vê.
 
-Acerto por categoria no sistema: Vidro 97%, Papel 95%, Metal 94%, Plástico 89% e Orgânico/Rejeito 86%. As
-matrizes de confusão estão em `reports/`.
+| Classificador de material, nas 5 categorias        | TrashNet | TrashBox  |
+| --------------------------------------------------- | -------- | --------- |
+| Anterior: `yolov8n-cls`, treinado só no TrashNet    | 95,2%    | 39,6%     |
+| **Atual: `yolo11s-cls`, TrashNet + TrashBox**       | 92,3%    | **90,0%** |
 
-**Limite conhecido:** essas fotos são de um objeto sobre fundo claro, como numa lixeira com câmera fixa. Em
-pilhas densas de lixo misturado, o detector do COCO acha só parte dos objetos, e o classificador erra mais (lata
-vermelha vista como plástico, garrafa verde de plástico vista como vidro). Para esse cenário, o caminho é treinar
-o detector com o TACO no Colab (abaixo) e, depois, com as suas próprias fotos.
+| Sistema inteiro (detector + classificador) | TrashNet, 1 objeto | TrashNet, normal | TrashBox, 1 objeto | TrashBox, normal |
+| ------------------------------------------ | ------------------ | ---------------- | ------------------ | ---------------- |
+| COCO + classificador anterior              | 93,7%              | 84,4%            | 39,3%              | 39,3%            |
+| COCO + classificador atual                 | 92,3%              | 84,2%            | **89,6%**          | **77,1%**        |
+| YOLOE + classificador anterior             | 93,9%              | 89,5%            | 38,9%              | 37,0%            |
+| YOLOE + classificador atual                | 92,3%              | 85,5%            | **89,8%**          | **78,2%**        |
 
-O classificador incluído é o `yolov8n-cls`, treinado em CPU por 40 épocas (cerca de 30 minutos).
+Acerto por categoria no TrashBox: Plástico 90%, Papel 93%, Metal 90%, Vidro 89% e Orgânico/Rejeito 87% (com o
+classificador anterior: 22%, 87%, 46%, 28% e 3%). As confusões que sobram são rejeito visto como papel (caixas de
+remédio, máscaras) e vidro transparente visto como plástico.
+
+- **O anterior parecia melhor do que era:** 95% em fotos iguais às do treino, mas 4 acertos em 10 em fotos
+  variadas. O atual troca 3 pontos nas fotos de estúdio por 50 pontos nas variadas.
+- **Fotos repetidas:** o TrashBox, montado com imagens da internet, contém 112 das 379 fotos de teste do TrashNet e
+  repete no treino 116 das suas próprias fotos de teste. Treinar sem limpar faria o teste "colar". Antes do treino,
+  `src/dedup.py` tira do treino as 642 fotos que repetem uma da validação ou do teste, e os testes ficam intactos.
+- **Modo normal × 1 objeto:** nas fotos de um objeto só, quando o detector acha algo, ele costuma escolher uma parte
+  (o rótulo, a tampa) ou um objeto do fundo, e a textura do recorte acerta menos que a da foto inteira. Com um
+  resíduo por foto, ligue **Só um objeto por foto**.
+- **Limite da foto inteira:** no modo de 1 objeto e no plano B, a foto inteira decide quando a certeza **na
+  categoria** passa de 50%. Antes contava a certeza da classe com 60%: papelão 45% + papel 40% (Papel com 85%) caía
+  no detector, que sozinho acerta 1 em cada 3. A troca valeu 1,6 ponto no modo de 1 objeto, medida na validação.
+- O YOLO-World (o padrão) não está na tabela: o ambiente onde ela foi feita não alcança os pesos do CLIP. O YOLOE é
+  da mesma família.
+
+**Limite conhecido:** os dois testes têm um resíduo por foto. Em pilhas densas de lixo misturado, o detector acha
+só parte dos objetos. Para esse cenário, o caminho é treinar o detector com o TACO no Colab (abaixo) e, depois,
+com as suas próprias fotos.
+
+O classificador incluído é o `yolo11s-cls` (pré-treinado no ImageNet), treinado em CPU em duas etapas
+(`python -m src.train material`): 20 épocas no dataset combinado (13.173 fotos, 3 horas) e 3 épocas de ajuste fino
+com as fotos do TrashNet repetidas 3 vezes (26 minutos). Sem o ajuste fino, o acerto nas fotos do TrashNet da
+validação ficava 2 pontos abaixo do anterior; com ele, empatou. A escolha do modelo, do ajuste fino e do limite
+usou só a validação; os testes foram medidos no fim.
 
 ### Dicas de captura (o que mais melhora o resultado de graça)
 
@@ -240,8 +271,8 @@ O classificador incluído é o `yolov8n-cls`, treinado em CPU por 40 épocas (ce
 - luz constante e difusa (fita de LED), sem sombra forte nem reflexo;
 - um item por vez na área da foto, ocupando boa parte dela.
 
-O classificador foi treinado em fotos assim (objeto sobre fundo claro), então é nessas condições que ele rende
-mais.
+O classificador atual também aprendeu com fotos variadas (fundos, ângulos e luz diferentes), mas um objeto por vez,
+bem iluminado e ocupando boa parte da foto continua sendo o que mais acerta.
 
 ### Configuração
 
@@ -252,7 +283,7 @@ mais.
 | `DETECTOR_CONF`        | 0.25   | confiança mínima de uma detecção                                        |
 | `WASTE_TTA`            | 0      | 1 = inferência com aumento de dados (vira a imagem e muda a escala: mais lenta) |
 | `WASTE_MATERIAL_MODEL` | auto   | classificador de material; `off` desliga a 2ª etapa                     |
-| `WASTE_MATERIAL_CONF`  | 0.6    | certeza mínima para o classificador mudar a categoria                   |
+| `WASTE_MATERIAL_CONF`  | 0.5    | certeza mínima na categoria para a foto inteira decidir (modo lixeira e plano B) |
 | `WASTE_SINGLE_ITEM`    | 0      | 1 = modo lixeira (1 item por foto)                                      |
 | `WASTE_REVIEW`         | 1      | 0 = não guarda casos duvidosos                                          |
 | `WASTE_REVIEW_CONF`    | 0.5    | detecções abaixo dessa confiança vão para revisão                       |
@@ -265,16 +296,23 @@ mais.
    como certo.
 2. Na aba **Correções e Treino**, com pelo menos 5 exemplos, clique em **Treinar com minhas correções**.
 
-O treino ajusta o classificador em uso com o TrashNet + as suas correções (cada uma conta 5 vezes) e congela as
-camadas de base da rede, para ele aprender sem esquecer o resto. Leva cerca de 1 minuto por época numa CPU comum
-(o padrão são 8). Depois, o modelo novo é comparado com o atual e **só é trocado se não piorar**: até 2 pontos de
-queda no teste do TrashNet e nenhuma queda nas correções separadas para validação (1 em cada 5, a partir de 10
-correções). O modelo anterior fica guardado (botão **Voltar ao modelo anterior**).
+O treino ajusta o classificador em uso com fotos de referência + as suas correções (cada uma conta 5 vezes) e
+congela as camadas de base da rede, para ele aprender sem esquecer o resto. As fotos de referência são uma amostra
+do dataset combinado TrashNet + TrashBox (300 por classe), se `datasets/material` existir no computador (ele é
+criado por `python -m src.train material`); senão, o TrashNet, baixado na primeira vez (42 MB). Leva cerca de 1
+minuto por época numa CPU comum (o padrão são 8). Depois, o modelo novo é comparado com o atual e **só é trocado se
+não piorar**: até 2 pontos de queda no teste do TrashNet (e no do TrashBox, com o dataset combinado) e nenhuma
+queda nas correções separadas para validação (1 em cada 5, a partir de 10 correções). O modelo anterior fica
+guardado (botão **Voltar ao modelo anterior**).
 
 Os recortes ficam em `storage/corrections/` e o modelo re-treinado em `storage/material_cls.pt`, fora do Git:
 o `git pull` nunca apaga o que você ensinou.
 
-Exemplo real, com 14 correções da foto de uma pilha de lixo (latas, garrafas, tampas), 5 épocas, 2 minutos:
+Com o classificador atual: 15 correções de fotos do TrashBox que ele errava, 8 épocas, 7 minutos (com o dataset
+combinado): ele aprendeu 10 das 15, e o teste do TrashNet foi de 92,4% para 92,9%. Com a taxa de aprendizado
+antiga (0,0005), aprendia 12 mas o teste caía para 87,1%, e o modelo era recusado; por isso o re-treino usa 0,0001.
+
+Exemplo real (com o classificador anterior, treinado só no TrashNet), com 14 correções da foto de uma pilha de lixo (latas, garrafas, tampas), 5 épocas, 2 minutos:
 o acerto nesses objetos foi de 6/14 para 14/14, as 3 correções separadas para validação foram de 67% para 100%, e o
 teste do TrashNet subiu de 95,2% para 95,8%. Sem congelar as camadas, o mesmo treino derrubava o teste do TrashNet
 para 92,9% e era recusado.
@@ -297,6 +335,7 @@ Repetir esse ciclo algumas vezes ensina ao modelo justamente o que ele erra.
 
 ```bash
 python -m src.evaluate material      # classificador no conjunto de teste do TrashNet
+python -m src.evaluate material --test datasets/material/test_trashbox --report material_trashbox
 python -m src.evaluate system        # sistema inteiro: só COCO × COCO + material
 python -m src.evaluate detector --models yolov8n.pt yolov8s.pt
 ```
@@ -317,8 +356,20 @@ python -m src.train taco --base models/yolov8s.pt --epochs 100 --device 0   # TA
 python -m src.train coco-json --annotations a.json --images fotos/
 ROBOFLOW_API_KEY=... python -m src.train roboflow --workspace org --project lixo --version 3
 python -m src.train yaml --data datasets/meu/data.yaml     # seus dados, Ultralytics HUB, CVAT, Label Studio…
-python -m src.train trashnet --epochs 40                   # classificador de material (roda em CPU)
+python -m src.train material                               # classificador de material (CPU, ~3,5 h)
+python -m src.train trashnet --epochs 40                   # classificador só com o TrashNet (CPU, ~30 min)
 ```
+
+**Classificador de material (`material`):** baixa o TrashNet (42 MB) e o TrashBox (2,7 GB, pelo `git`; ou passe
+`--trashbox` com os clones de `nikhilvenkatkumsetty/TrashBox` e `nikhilvenkatkumsetty/TrashBox-testandvalid`),
+junta os dois com as 6 classes do TrashNet (lixo eletrônico e hospitalar viram `trash`) e treina o `yolo11s-cls` em
+duas etapas: 20 épocas no dataset combinado e 3 de ajuste fino com as fotos do TrashNet repetidas 3 vezes. Antes, tira
+do treino toda foto que repete uma da validação ou do teste (veja *Resultados medidos*). O dataset fica em
+`datasets/material/` (`info.json` resume o que entrou e o que saiu), e o modelo em `models/material_cls.pt`.
+
+O TrashBox (Kumsetty et al., *TrashBox: Trash Detection and Classification using Quantum Transfer Learning*, FRUCT
+2022) não declara licença no repositório. As fotos não vão para este repositório, só o modelo treinado com elas; para
+uso comercial, confirme com os autores.
 
 O TACO e outros datasets em formato COCO são convertidos para as 5 categorias antes do treino; as fotos são
 reduzidas para 1280 px e gravadas na orientação certa. O Roboflow precisa de `pip install roboflow`. Os pesos

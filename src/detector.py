@@ -146,7 +146,7 @@ class Detector:
         imgsz: int = 640,
         augment: bool = False,
         material_model: str | Path | None = "auto",
-        material_conf: float = 0.6,
+        material_conf: float = 0.5,
         mode: str = "alta",
         detector_kind: str = "yolo-world",
         preprocess: bool = False,
@@ -155,8 +155,8 @@ class Detector:
         deep_scanner="auto",
     ):
         """``material_model``: ``"auto"`` (Hugging Face se configurado, senão o classificador local), um caminho
-        de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima para, no modo de
-        1 item por foto, a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
+        de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima na categoria para,
+        no modo de 1 item por foto (ou no plano B), a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
         ocupar."""
         self.model, self.model_path, self.fallback_note = _load_detector(model_path, detector_kind)
         names = self.model.names
@@ -188,7 +188,7 @@ class Detector:
             imgsz=int(os.environ.get("WASTE_IMGSZ", "640")),
             augment=os.environ.get("WASTE_TTA", "0") == "1",
             material_model=None if material.lower() in ("off", "0", "none") else material,
-            material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.6")),
+            material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.5")),
             mode=os.environ.get("WASTE_MODE", "alta"),
             detector_kind=os.environ.get("WASTE_DETECTOR", "yolo-world"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
@@ -323,22 +323,24 @@ class Detector:
 
         No teste do TrashNet, deixar o detector decidir errava 16% das fotos: o COCO "vê" papelão como celular e
         coisas alaranjadas como banana. Se o especialista não tiver certeza, fica o que o detector achou.
+
+        A certeza que conta é a da categoria, não a da classe: papelão 45% + papel 40% é Papel com 85%.
         """
         (pred,) = self.texture.predict([image])
-        if pred.confidence < self.material_conf:
+        category, certainty = top(pred.probs)
+        if certainty < self.material_conf:
             return detections
         waste = [d for d in detections if d.category]
         others = [d for d in detections if not d.category]
         if waste:
             best = max(waste, key=lambda d: d.confidence)
-            weight = best.weight_g if best.category == top(pred.probs)[0] else DEFAULT_WEIGHT_G[top(pred.probs)[0]]
+            weight = best.weight_g if best.category == category else DEFAULT_WEIGHT_G[category]
             item = replace(
-                best, category=top(pred.probs)[0], weight_g=weight, material=pred.label,
+                best, category=category, weight_g=weight, material=pred.label,
                 material_confidence=pred.confidence, probs=pred.probs,
             )
         else:
             h, w = image.shape[:2]
-            category = top(pred.probs)[0]
             item = Detection(
                 pred.label, pred.confidence, (0.0, 0.0, float(w), float(h)), category,
                 DEFAULT_WEIGHT_G[category], pred.label, pred.confidence, pred.probs,

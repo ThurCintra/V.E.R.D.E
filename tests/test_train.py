@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import yaml
 
-from src.train import CATEGORY_NAMES, convert_coco_to_yolo, train
+from src.train import CATEGORY_NAMES, convert_coco_to_yolo, oversampled, train
 
 
 def fake_taco(tmp_path, n_images=4):
@@ -65,3 +65,16 @@ def test_fine_tuning_gera_o_modelo_customizado(tmp_path, model_path):
     custom = Detector(out)
     assert custom.backend == "customizado"
     assert list(custom.class_names.values()) == CATEGORY_NAMES
+
+
+def test_ajuste_fino_repete_so_as_fotos_do_trashnet_no_treino(tmp_path):
+    for split in ("train", "val"):
+        for name in ("trashnet_a.jpg", "trashbox_b.jpg"):
+            img = tmp_path / "data" / split / "glass" / name
+            img.parent.mkdir(parents=True, exist_ok=True)
+            img.write_bytes(b"x")
+    out = oversampled(tmp_path / "data", tmp_path / "ajuste", times=3)
+    assert sorted(p.name for p in (out / "train" / "glass").iterdir()) == [
+        "rep1_trashnet_a.jpg", "rep2_trashnet_a.jpg", "trashbox_b.jpg", "trashnet_a.jpg",
+    ]
+    assert sorted(p.name for p in (out / "val" / "glass").iterdir()) == ["trashbox_b.jpg", "trashnet_a.jpg"]
