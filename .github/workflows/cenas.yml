@@ -54,8 +54,8 @@ jobs:
       - name: Avaliar
         run: |
           set -o pipefail
-          kinds="coco yoloe yolo-world"
-          if [ -f models/residuos_taco.pt ]; then kinds="coco taco coco+taco yoloe yoloe+taco yolo-world yolo-world+taco"; fi
+          kinds="padrao coco yoloe yolo-world"
+          if [ -f models/residuos_taco.pt ]; then kinds="padrao padrao-neutro coco taco coco+taco yoloe yoloe+taco yolo-world yolo-world+taco"; fi
           python .github/scripts/scenes_grid.py cenas.md $kinds 2>&1 | tee cenas.log
 
       - name: Publicar o resultado

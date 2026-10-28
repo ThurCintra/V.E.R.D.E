@@ -126,3 +126,28 @@ def test_segundo_detector_nao_repete_o_que_o_primeiro_achou(model_path, coco_sam
         b = [d.box for d in com_extra.detect(image, waste_only=True)]
         assert a == b
     assert com_extra.backend == "coco + residuos"
+
+
+def test_padrao_e_o_escolhido_nas_cenas_do_taco(monkeypatch):
+    from src.detector import Detector
+    from src.paths import TACO_DETECTOR
+
+    for var in ("WASTE_DETECTOR", "WASTE_MODEL", "WASTE_EXTRA_MODEL", "DETECTOR_CONF", "WASTE_MERGE"):
+        monkeypatch.delenv(var, raising=False)
+    seen = {}
+    monkeypatch.setattr(Detector, "__init__", lambda self, **kw: seen.update(kw))
+    detector = Detector.from_env()
+    assert (seen["detector_kind"], seen["conf"], seen["extra_model"]) == ("coco", 0.55, str(TACO_DETECTOR))
+    assert detector.merge_overlap == 0.7
+
+    monkeypatch.setenv("WASTE_EXTRA_MODEL", "off")
+    monkeypatch.setenv("WASTE_MERGE", "off")
+    detector = Detector.from_env()
+    assert seen["extra_model"] is None and detector.merge_overlap is None
+
+
+def test_segundo_detector_tambem_completa_o_vocabulario_aberto(detector):
+    from src.detector import AGNOSTIC_LABEL
+
+    detector.is_open_vocab = True  # antes, a classe "residuo" não estava no vocabulário e a caixa sumia
+    assert detector._shape_category(AGNOSTIC_LABEL) == ("Plástico", 25)
