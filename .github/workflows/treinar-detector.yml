@@ -52,15 +52,16 @@ jobs:
           set -o pipefail
           python .github/scripts/train_detector.py detector.md 2>&1 | tee detector.log
 
+      - name: Reserva do detector no cache
+        if: always() && hashFiles('models/residuos_taco.pt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: models/residuos_taco.pt
+          key: candidato-detector-${{ github.run_id }}
+
       - name: Guardar o detector na branch modelo-detector-taco
-        if: success() && hashFiles('models/residuos_taco.pt') != ''
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B modelo-detector-taco
-          git add -f models/residuos_taco.pt
-          git commit -m "Candidato: detector de resíduos treinado no TACO" -m "Gerado pelo workflow Treinar o detector com o TACO (${GITHUB_SHA::7})."
-          git push -f origin modelo-detector-taco
+        if: always() && hashFiles('models/residuos_taco.pt') != ''
+        run: bash .github/scripts/save_candidate.sh modelo-detector-taco models/residuos_taco.pt
 
       - name: Publicar o resultado
         if: always()

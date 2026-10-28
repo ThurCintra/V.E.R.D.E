@@ -1,14 +1,15 @@
-# Ajuste fino do classificador de material com recortes reais do TACO (.github/scripts/train_taco.py). O candidato
-# vai para a branch "modelo-taco" (models/material_cls_taco.pt + reports/material_taco.json), para ser conferido
-# antes de virar o modelo do sistema; a tabela de resultados vira um check do commit.
+# Ajuste fino do classificador de material com recortes reais do TACO (.github/scripts/train_taco.py), uma variante
+# por máquina, em paralelo. Cada candidato vai para a branch "modelo-taco-<variante>" (models/material_cls_taco.pt +
+# reports/material_taco.json), para ser conferido antes de virar o modelo do sistema, e a tabela de cada variante vira
+# um check do commit.
 name: Treinar com o TACO
 
 on:
   workflow_dispatch:
     inputs:
-      scene_settings:
-        description: "Pós-processamentos medidos nas cenas (lista JSON de atributos do Detector; vazio: o padrão do script)"
-        default: ""
+      variantes:
+        description: "Variantes (lista JSON; veja VARIANTS em .github/scripts/train_taco.py)"
+        default: '["congelada8", "congelada5", "todas_lr1e4"]'
   push:
     paths:
       - ".github/workflows/treinar-taco.yml"
@@ -19,62 +20,106 @@ permissions:
   checks: write
 
 jobs:
-  treinar:
+  dados:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Fotos do TACO
+        id: taco
+        uses: actions/cache/restore@v4
+        with:
+          path: datasets/taco_cenas
+          key: taco-cenas-1280-v2
+      - name: Dataset TrashNet + TrashBox
+        id: material
+        uses: actions/cache/restore@v4
+        with:
+          path: datasets/material
+          key: material-trashnet-trashbox-v1
+      - name: Preparar o que faltar
+        if: steps.taco.outputs.cache-hit != 'true' || steps.material.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+          pip install uv
+          uv pip install --system -r app/requirements.txt
+          python .github/scripts/train_taco.py --so-dados
+      # Salvos logo aqui: com o cache automático, uma falha mais adiante jogaria fora o trabalho de preparar
+      - if: steps.taco.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: datasets/taco_cenas
+          key: taco-cenas-1280-v2
+      - if: steps.material.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: datasets/material
+          key: material-trashnet-trashbox-v1
 
+  treinar:
+    needs: dados
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        variante: ${{ fromJSON(github.event.inputs.variantes || '["congelada8", "congelada5", "todas_lr1e4"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Dependências
         run: |
           sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
           pip install uv
           uv pip install --system -r app/requirements.txt
-
-      - name: Fotos do TACO (guardadas entre execuções)
-        uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: datasets/taco_cenas
           key: taco-cenas-1280-v2
-
-      - name: Dataset TrashNet + TrashBox (guardado entre execuções)
-        uses: actions/cache@v4
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
         with:
           path: datasets/material
           key: material-trashnet-trashbox-v1
+          fail-on-cache-miss: true
 
       - name: Treinar e medir
         env:
-          SCENE_SETTINGS: ${{ github.event.inputs.scene_settings }}
+          TACO_VARIANTS: ${{ matrix.variante }}
         run: |
           set -o pipefail
           python .github/scripts/train_taco.py treino.md 2>&1 | tee treino.log
 
-      - name: Guardar o candidato na branch modelo-taco
-        if: success() && hashFiles('models/material_cls_taco.pt') != ''
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B modelo-taco
-          git add -f models/material_cls_taco.pt reports/material_taco.json
-          git commit -m "Candidato: classificador de material ajustado com o TACO" -m "Gerado pelo workflow Treinar com o TACO (${GITHUB_SHA::7})."
-          git push -f origin modelo-taco
+      - name: Reserva do candidato no cache
+        if: always() && hashFiles('models/material_cls_taco.pt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            models/material_cls_taco.pt
+            reports/material_taco.json
+          key: candidato-textura-${{ matrix.variante }}-${{ github.run_id }}
+
+      - name: Guardar o candidato na branch modelo-taco-${{ matrix.variante }}
+        if: always() && hashFiles('models/material_cls_taco.pt') != ''
+        run: bash .github/scripts/save_candidate.sh modelo-taco-${{ matrix.variante }} models/material_cls_taco.pt reports/material_taco.json
 
       - name: Publicar o resultado
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          VARIANTE: ${{ matrix.variante }}
         run: |
           python - <<'EOF'
           import json, os, pathlib
           md, log = pathlib.Path("treino.md"), pathlib.Path("treino.log")
           text = md.read_text() if md.is_file() else "O treino falhou:\n\n```\n" + (log.read_text()[-6000:] if log.is_file() else "") + "\n```"
-          json.dump({"name": "Resultado: treino com o TACO", "head_sha": os.environ["GITHUB_SHA"],
-                     "status": "completed", "conclusion": "neutral",
-                     "output": {"title": "Treino com o TACO", "summary": text[:65000]}}, open("payload.json", "w"))
+          name = f"Resultado: treino com o TACO ({os.environ['VARIANTE']})"
+          json.dump({"name": name, "head_sha": os.environ["GITHUB_SHA"], "status": "completed", "conclusion": "neutral",
+                     "output": {"title": name, "summary": text[:65000]}}, open("payload.json", "w"))
           EOF
           gh api repos/${{ github.repository }}/check-runs --method POST --input payload.json > /dev/null
