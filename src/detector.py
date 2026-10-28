@@ -100,6 +100,25 @@ class Detection:
         }
 
 
+def _containment(a, b) -> float:
+    """Quanto da menor das duas caixas está dentro da outra (1: uma está toda dentro da outra)."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return ix * iy / smaller if smaller > 0 else 0.0
+
+
+def merge_duplicates(detections: list[Detection], overlap: float) -> list[Detection]:
+    """Uma caixa da mesma categoria quase toda dentro de outra é o mesmo resíduo contado duas vezes (a banana e o
+    sanduíche dela, a garrafa e o rótulo): fica a mais confiante."""
+    kept: list[Detection] = []
+    for d in sorted(detections, key=lambda d: -d.confidence):
+        if d.category and any(k.category == d.category and _containment(d.box, k.box) >= overlap for k in kept):
+            continue
+        kept.append(d)
+    return [d for d in detections if any(d is k for k in kept)]
+
+
 def best_waste(detections) -> Detection | None:
     """O resíduo detectado com maior confiança: a lixeira que vale para a foto inteira."""
     waste = [d for d in detections if d.category]
@@ -171,6 +190,8 @@ class Detector:
         self.material_conf = material_conf
         self.calibration: SceneCalibration | None = None
         self.deep_scan_all = False  # Deep Scan em todo objeto (não só nos duvidosos parados no centro)
+        self.ignore_labels: frozenset[str] = frozenset()  # classes do detector que nunca viram resíduo
+        self.merge_overlap: float | None = None  # junta caixas da mesma categoria com essa sobreposição (None: não)
 
         if material_model == "auto":
             self.texture = load_texture_expert(device)
@@ -278,6 +299,8 @@ class Detector:
             label = names[int(c)]
             if self.is_open_vocab and label in IGNORED_VOCABULARY:
                 continue  # estão no vocabulário só para o detector não confundir pessoas e mãos com resíduo
+            if label in self.ignore_labels:
+                continue
             category, weight = self._shape_category(label)
             if waste_only and category is None:
                 continue
@@ -292,6 +315,8 @@ class Detector:
 
         if self.texture and self.mode != "rapido":
             detections = self._ensemble(image, detections)
+        if self.merge_overlap is not None and not single_item:
+            detections = merge_duplicates(detections, self.merge_overlap)
         if self.texture and self.mode != "rapido":
             if single_item:
                 detections = self._single_item(image, detections)

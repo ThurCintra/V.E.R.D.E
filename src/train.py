@@ -178,6 +178,66 @@ def download_taco(out_dir: Path = DATASETS_DIR / "taco_raw", workers: int = 8) -
     return annotations, out_dir
 
 
+def prepare_taco_scenes(
+    out_dir: str | Path = DATASETS_DIR / "taco_cenas", max_size: int = 1280, seed: int = 0,
+    raw_dir: str | Path | None = None,
+) -> Path:
+    """O TACO como cenas para avaliar o sistema inteiro: fotos com vários resíduos, com a caixa e a categoria de cada
+    um. Devolve o ``cenas.json``. Não refaz o que já existe.
+
+    As fotos são regravadas com no máximo ``max_size`` px no lado maior e separadas por foto em treino, validação e
+    teste (60/20/20). "Unlabeled litter" fica sem categoria: o material é desconhecido, e a avaliação ignora o que
+    o sistema disser desses objetos.
+    """
+    import cv2
+
+    out_dir = Path(out_dir)
+    index = out_dir / "cenas.json"
+    if index.is_file():
+        return index
+    annotations, raw_dir = (Path(raw_dir) / "annotations.json", Path(raw_dir)) if raw_dir else download_taco()
+    coco = json.loads(annotations.read_text(encoding="utf-8"))
+    names = {c["id"]: c["name"] for c in coco["categories"]}
+    objects: dict[int, list[dict]] = {}
+    for ann in coco["annotations"]:
+        objects.setdefault(ann["image_id"], []).append(ann)
+    ids = sorted(objects)
+    random.Random(seed).shuffle(ids)
+    n_train, n_val = round(len(ids) * 0.6), round(len(ids) * 0.2)
+    split_of = {i: "train" if k < n_train else "val" if k < n_train + n_val else "test" for k, i in enumerate(ids)}
+
+    (out_dir / "images").mkdir(parents=True, exist_ok=True)
+    scenes, skipped = [], 0
+    for info in coco["images"]:
+        if info["id"] not in objects:
+            continue
+        pixels = cv2.imread(str(raw_dir / info["file_name"]))  # aplica a rotação do EXIF, que é a das anotações
+        if pixels is None or pixels.shape[:2] != (info["height"], info["width"]):
+            skipped += 1
+            continue
+        scale = min(1.0, max_size / max(pixels.shape[:2]))
+        if scale < 1:
+            pixels = cv2.resize(pixels, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        name = info["file_name"].replace("/", "_")
+        cv2.imwrite(str(out_dir / "images" / name), pixels, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        items = []
+        for ann in objects[info["id"]]:
+            x, y, w, h = (v * scale for v in ann["bbox"])
+            if w <= 0 or h <= 0:
+                continue
+            taco = names[ann["category_id"]]
+            items.append({
+                "box": [round(x, 1), round(y, 1), round(x + w, 1), round(y + h, 1)],
+                "category": None if taco == "Unlabeled litter" else category_from_name(taco).name,
+                "taco": taco,
+            })
+        scenes.append({"file": f"images/{name}", "split": split_of[info["id"]], "objects": items})
+    if skipped:
+        print(f"{skipped} foto(s) puladas: ilegíveis ou com tamanho diferente do das anotações")
+    index.write_text(json.dumps({"scenes": scenes}, ensure_ascii=False), encoding="utf-8")
+    return index
+
+
 def download_roboflow(workspace: str, project: str, version: int, api_key: str | None = None) -> Path:
     """Baixa um dataset do Roboflow no formato yolov8. Devolve o data.yaml."""
     try:
