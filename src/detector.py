@@ -191,8 +191,8 @@ class Detector:
             material_model=None if material.lower() in ("off", "0", "none") else material,
             material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.5")),
             mode=os.environ.get("WASTE_MODE", "alta"),
-            # No site público, o COCO: mediu igual ao YOLOE e não precisa baixar nem carregar o CLIP (~600 MB a
-            # mais de memória na primeira vez), que estouraria o limite dos servidores gratuitos
+            # No site público, o COCO: mediu quase igual ao YOLOE (~1 ponto a menos no modo normal) e não precisa
+            # baixar nem carregar o CLIP (~600 MB a mais de memória), bem além do que os servidores gratuitos garantem
             detector_kind=os.environ.get("WASTE_DETECTOR", "coco" if paths.PUBLIC else "yolo-world"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
         )
