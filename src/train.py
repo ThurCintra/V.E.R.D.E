@@ -16,6 +16,9 @@ Fontes suportadas:
   17.785 fotos da internet em 7 classes, com fundos e ângulos variados. As fotos que repetem alguma da
   validação ou do teste saem do treino antes (``src/dedup.py``), e o teste do TrashNet continua o mesmo, para
   comparar com os modelos antigos.
+- **Recortes do TACO** (comando ``material-taco``): ajusta o classificador com os resíduos das cenas de treino do
+  TACO, recortados como o detector recorta. As cenas também treinam o detector de uma classe só
+  (``detector-taco``), que acha o lixo que o COCO não conhece.
 
 Exemplos::
 
@@ -25,6 +28,8 @@ Exemplos::
     python -m src.train yaml --data datasets/meu/data.yaml
     python -m src.train trashnet --epochs 30          # classificador de material (só TrashNet)
     python -m src.train material --epochs 20          # classificador de material (TrashNet + TrashBox)
+    python -m src.train material-taco                 # ajusta o classificador com recortes do TACO
+    python -m src.train detector-taco                 # detector de uma classe só nas cenas do TACO
 
 Ao terminar, o melhor peso é copiado para ``models/waste_detector.pt`` (ou ``models/material_cls.pt``) e o
 detector passa a usá-lo sozinho.
@@ -43,7 +48,7 @@ from pathlib import Path
 
 import yaml
 
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, MATERIAL_MODEL, MODELS_DIR, ROOT
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, MATERIAL_MODEL, MODELS_DIR, ROOT, TACO_DETECTOR
 from src.recycling import CATEGORIES, category_from_name
 
 DATASETS_DIR = ROOT / "datasets"
@@ -702,11 +707,14 @@ def main(argv: list[str] | None = None) -> None:
     mix.add_argument("--zip", help="dataset-resized.zip do TrashNet já baixado")
     mix.add_argument("--trashbox", help="pasta com os clones de TrashBox e TrashBox-testandvalid (padrão: baixa)")
     mix.add_argument("--max-per-class", type=int, default=2600)
+    sub.add_parser("material-taco", help="ajusta o classificador de material com recortes do TACO (o atual)")
+    sub.add_parser("detector-taco", help="treina o detector de uma classe só nas cenas do TACO")
 
-    bases = {"trashnet": MODELS_DIR / "yolov8n-cls.pt", "material": MODELS_DIR / MATERIAL_BASE}
+    bases = {"trashnet": MODELS_DIR / "yolov8n-cls.pt", "material": MODELS_DIR / MATERIAL_BASE,
+             "material-taco": MATERIAL_MODEL, "detector-taco": MODELS_DIR / "yolo11n.pt"}
     for name, p in sub.choices.items():
-        classify = name in bases
-        p.add_argument("--epochs", type=int, default={"trashnet": 30, "material": 20}.get(name, 50))
+        classify = name in ("trashnet", "material", "material-taco")
+        p.add_argument("--epochs", type=int, default={"trashnet": 30, "material": 20, "material-taco": 8}.get(name, 40))
         p.add_argument("--imgsz", type=int, default=224 if classify else 640)
         p.add_argument("--batch", type=int, default=32 if classify else 16)
         p.add_argument("--device", help="cpu, 0 (GPU), mps…")
@@ -726,6 +734,22 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(json.loads((data_dir / "info.json").read_text(encoding="utf-8"))["fotos"], indent=1))
         out = train_material(data_dir, resolve(args.base), args.epochs, args.imgsz, args.batch, args.device, args.runs_dir)
         print(f"Classificador de material salvo em {out}")
+        return
+    if args.source == "material-taco":
+        from src.weights import resolve
+
+        index = prepare_taco_scenes()
+        # Base congelada até a camada 8: das variantes medidas, a única que não perdeu mais de 1 ponto nas fotos de
+        # estúdio e da internet (veja "Cenas reais" no README)
+        out = train_material_taco(prepare_taco_crops(index), prepare_material_dataset(), resolve(args.base),
+                                  MATERIAL_MODEL, epochs=args.epochs, freeze=8, project_dir=args.runs_dir)
+        print(f"Classificador de material salvo em {out}")
+        return
+    if args.source == "detector-taco":
+        data = prepare_taco_detection(prepare_taco_scenes())
+        out = train(data, args.base, args.epochs, args.imgsz, args.batch, args.device, args.runs_dir,
+                    output=TACO_DETECTOR, patience=15)
+        print(f"Detector salvo em {out}")
         return
     if args.source == "trashnet":
         data_dir = prepare_trashnet(zip_path=args.zip)

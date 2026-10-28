@@ -15,6 +15,7 @@ DATA_DIR = ROOT / "data"
 DEFAULT_MODEL = MODELS_DIR / "yolov8s.pt"  # o yolov8n (mais rápido) acha bem menos objetos em pilhas de lixo
 CUSTOM_MODEL = MODELS_DIR / "waste_detector.pt"  # detector de resíduos, gerado por src/train.py
 MATERIAL_MODEL = MODELS_DIR / "material_cls.pt"  # classificador de material (TrashNet), idem
+TACO_DETECTOR = MODELS_DIR / "residuos_taco.pt"  # detector de uma classe só ("residuo"), treinado nas cenas do TACO
 STORAGE_DIR = Path(os.environ.get("WASTE_STORAGE_DIR", ROOT / "storage"))  # dados do usuário, fora do Git
 USER_MATERIAL_MODEL = STORAGE_DIR / "material_cls.pt"  # classificador re-treinado com as correções do usuário
 CORRECTIONS_DIR = Path(os.environ.get("WASTE_CORRECTIONS_DIR", STORAGE_DIR / "corrections"))  # do usuário
