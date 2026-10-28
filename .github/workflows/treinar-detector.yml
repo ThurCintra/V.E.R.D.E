@@ -1,0 +1,78 @@
+# Treina um detector de uma classe só ("residuo") nas cenas do TACO e compara o sistema com ele e com o COCO
+# (.github/scripts/train_detector.py). O peso vai para a branch "modelo-detector-taco" (models/residuos_taco.pt),
+# para ser conferido antes de virar o detector do sistema; a tabela vira um check do commit.
+name: Treinar o detector com o TACO
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: "Épocas (no máximo)"
+        default: "40"
+      base:
+        description: "Modelo de partida"
+        default: "yolo11n.pt"
+  push:
+    paths:
+      - ".github/workflows/treinar-detector.yml"
+      - ".github/scripts/train_detector.py"
+
+permissions:
+  contents: write
+  checks: write
+
+jobs:
+  treinar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências
+        run: |
+          sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+          pip install uv
+          uv pip install --system -r app/requirements.txt
+
+      - name: Fotos do TACO (guardadas entre execuções)
+        uses: actions/cache@v4
+        with:
+          path: datasets/taco_cenas
+          key: taco-cenas-1280-v2
+
+      - name: Treinar e medir
+        env:
+          DET_EPOCHS: ${{ github.event.inputs.epochs || '40' }}
+          DET_BASE: ${{ github.event.inputs.base || 'yolo11n.pt' }}
+        run: |
+          set -o pipefail
+          python .github/scripts/train_detector.py detector.md 2>&1 | tee detector.log
+
+      - name: Guardar o detector na branch modelo-detector-taco
+        if: success() && hashFiles('models/residuos_taco.pt') != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B modelo-detector-taco
+          git add -f models/residuos_taco.pt
+          git commit -m "Candidato: detector de resíduos treinado no TACO" -m "Gerado pelo workflow Treinar o detector com o TACO (${GITHUB_SHA::7})."
+          git push -f origin modelo-detector-taco
+
+      - name: Publicar o resultado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'EOF'
+          import json, os, pathlib
+          md, log = pathlib.Path("detector.md"), pathlib.Path("detector.log")
+          text = md.read_text() if md.is_file() else "O treino falhou:\n\n```\n" + (log.read_text()[-6000:] if log.is_file() else "") + "\n```"
+          json.dump({"name": "Resultado: detector treinado no TACO", "head_sha": os.environ["GITHUB_SHA"],
+                     "status": "completed", "conclusion": "neutral",
+                     "output": {"title": "Detector treinado no TACO", "summary": text[:65000]}}, open("payload.json", "w"))
+          EOF
+          gh api repos/${{ github.repository }}/check-runs --method POST --input payload.json > /dev/null
