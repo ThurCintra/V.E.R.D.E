@@ -154,8 +154,30 @@ def convert_coco_to_yolo(
     return data_yaml
 
 
-def download_taco(out_dir: Path = DATASETS_DIR / "taco_raw", workers: int = 8) -> tuple[Path, Path]:
-    """Baixa as anotações do TACO (GitHub) e as fotos (Flickr). Devolve (annotations.json, pasta das fotos)."""
+def fetch_url(url: str, dest: Path, tries: int = 5, wait_s: float = 5.0) -> bool:
+    """Baixa ``url`` em ``dest``, esperando e tentando de novo quando o servidor recusa (o do TACO responde 403 a
+    rajadas de pedidos). Devolve se deu certo."""
+    import time
+
+    request = urllib.request.Request(url, headers={"User-Agent": "VERDE-dataset/1.0 (+github.com/ThurCintra/V.E.R.D.E)"})
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                data = response.read()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            return True
+        except OSError as err:
+            if getattr(err, "code", None) == 404 or attempt == tries - 1:
+                print(f"Falhou {url}: {err}")
+                return False
+            time.sleep(wait_s * 2**attempt)
+    return False
+
+
+def download_taco(out_dir: Path = DATASETS_DIR / "taco_raw", workers: int = 2) -> tuple[Path, Path]:
+    """Baixa as anotações do TACO (GitHub) e as fotos (img.tacodataset.org). Devolve (annotations.json, pasta das
+    fotos). Poucos downloads ao mesmo tempo: com mais, o servidor passa a recusar."""
     out_dir.mkdir(parents=True, exist_ok=True)
     annotations = out_dir / "annotations.json"
     if not annotations.is_file():
@@ -164,14 +186,9 @@ def download_taco(out_dir: Path = DATASETS_DIR / "taco_raw", workers: int = 8) -
 
     def fetch(img: dict) -> None:
         dest = out_dir / img["file_name"]
-        if dest.is_file():
-            return
-        dest.parent.mkdir(parents=True, exist_ok=True)
         url = img.get("flickr_url") or img.get("flickr_640_url")
-        try:
-            urllib.request.urlretrieve(url, dest)
-        except OSError as err:
-            print(f"Falhou {url}: {err}")
+        if not dest.is_file() and url:
+            fetch_url(url, dest)
 
     with ThreadPoolExecutor(workers) as pool:
         list(pool.map(fetch, coco["images"]))
@@ -236,6 +253,45 @@ def prepare_taco_scenes(
         print(f"{skipped} foto(s) puladas: ilegíveis ou com tamanho diferente do das anotações")
     index.write_text(json.dumps({"scenes": scenes}, ensure_ascii=False), encoding="utf-8")
     return index
+
+
+def taco_material_class(taco_name: str) -> str:
+    """Classe do classificador de material para um objeto do TACO (caixas e tubos de papelão são "cardboard")."""
+    category = category_from_name(taco_name).name
+    if category == "Papel":
+        return "cardboard" if {"carton", "box", "tube"} & set(taco_name.lower().split()) else "paper"
+    return {"Plástico": "plastic", "Metal": "metal", "Vidro": "glass"}.get(category, "trash")
+
+
+def prepare_taco_crops(
+    index: str | Path, out_dir: str | Path = DATASETS_DIR / "taco_recortes", splits: tuple[str, ...] = ("train", "val"),
+    min_area: float = 0.0005, short_side: int = 256,
+) -> Path:
+    """Os resíduos das cenas do TACO recortados como o detector recorta (a caixa com 10% de margem), em
+    ``<split>/<classe>/``: o classificador de material aprende com objetos do mundo real (rótulos, sujeira, chão).
+    Recortes menores que ``min_area`` da foto (o mínimo do detector) e sem material conhecido ficam de fora."""
+    import cv2
+
+    from src.evaluate import scene_items
+    from src.material import crop
+
+    out_dir = Path(out_dir)
+    for split in splits:
+        for path, objects in scene_items(index, split):
+            image = cv2.imread(str(path))
+            area = image.shape[0] * image.shape[1]
+            for k, obj in enumerate(objects):
+                x1, y1, x2, y2 = obj["box"]
+                if obj["category"] is None or (x2 - x1) * (y2 - y1) < min_area * area:
+                    continue
+                piece = crop(image, obj["box"])
+                scale = short_side / min(piece.shape[:2])
+                if scale < 1:
+                    piece = cv2.resize(piece, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                dest = out_dir / split / taco_material_class(obj["taco"]) / f"taco_{path.stem}_{k}.jpg"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(dest), piece, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    return out_dir
 
 
 def download_roboflow(workspace: str, project: str, version: int, api_key: str | None = None) -> Path:
@@ -479,6 +535,41 @@ def train_material(
         data_ft, first, ft_epochs, imgsz, batch, device, project_dir, output=output, name="material_ajuste",
         **{**MATERIAL_TRAINING, **finetune},
     )
+
+
+def train_material_taco(
+    taco_crops: str | Path,
+    reference: str | Path = DATASETS_DIR / "material",
+    base_model: str | Path = MATERIAL_MODEL,
+    output: str | Path = MATERIAL_MODEL,
+    work_dir: str | Path = DATASETS_DIR / "material_taco",
+    epochs: int = 8,
+    lr0: float = 0.0002,
+    freeze: int | None = None,
+    replay_per_class: dict[str, int] | None = None,
+    project_dir: str | Path = ROOT / "runs",
+    **overrides,
+) -> Path:
+    """Ajuste fino do classificador de material com os recortes do TACO (``prepare_taco_crops``) mais uma amostra
+    do dataset combinado TrashNet + TrashBox, para ele não esquecer as fotos de estúdio e as da internet. Copia o
+    resultado para ``output`` e devolve esse caminho."""
+    from src.corrections import _link, _sample
+    from src.evaluate import labeled_images
+
+    replay = replay_per_class or {"train": 600, "val": 100}
+    work = Path(work_dir)
+    shutil.rmtree(work, ignore_errors=True)
+    for split in ("train", "val"):
+        for img, cls in _sample(labeled_images(Path(reference) / split), replay[split]):
+            _link(img, work / split / cls / img.name)
+        if (Path(taco_crops) / split).is_dir():
+            for img, cls in labeled_images(Path(taco_crops) / split):
+                _link(img, work / split / cls / img.name)
+    settings = {**MATERIAL_TRAINING, "lr0": lr0, "warmup_epochs": 0, **overrides}
+    if freeze:
+        settings["freeze"] = freeze
+    return train_classifier(work, base_model, epochs, 224, 32, "cpu", project_dir, output=output, name="material_taco",
+                            **settings)
 
 
 def train_classifier(
