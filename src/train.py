@@ -12,6 +12,10 @@ Fontes suportadas:
 - **TrashNet** (github.com/garythung/trashnet, MIT): 2.527 fotos de um objeto cada, sem caixas. Treina o
   *classificador de material* (``models/material_cls.pt``), a segunda etapa do detector: ele olha o recorte de
   cada objeto e decide se é plástico, papel, metal, vidro ou rejeito. Roda bem em CPU.
+- **TrashNet + TrashBox** (comando ``material``): o TrashBox (github.com/nikhilvenkatkumsetty/TrashBox) junta
+  17.785 fotos da internet em 7 classes, com fundos e ângulos variados. As fotos que repetem alguma da
+  validação ou do teste saem do treino antes (``src/dedup.py``), e o teste do TrashNet continua o mesmo, para
+  comparar com os modelos antigos.
 
 Exemplos::
 
@@ -19,7 +23,8 @@ Exemplos::
     python -m src.train coco-json --annotations taco/annotations.json --images taco/ --epochs 50
     python -m src.train roboflow --workspace minha-org --project lixo --version 3
     python -m src.train yaml --data datasets/meu/data.yaml
-    python -m src.train trashnet --epochs 30          # classificador de material
+    python -m src.train trashnet --epochs 30          # classificador de material (só TrashNet)
+    python -m src.train material --epochs 20          # classificador de material (TrashNet + TrashBox)
 
 Ao terminar, o melhor peso é copiado para ``models/waste_detector.pt`` (ou ``models/material_cls.pt``) e o
 detector passa a usá-lo sozinho.
@@ -45,6 +50,27 @@ DATASETS_DIR = ROOT / "datasets"
 CATEGORY_NAMES = list(CATEGORIES)  # ordem fixa das classes do modelo treinado
 TACO_ANNOTATIONS_URL = "https://raw.githubusercontent.com/pedropro/TACO/master/data/annotations.json"
 TRASHNET_URL = "https://github.com/garythung/trashnet/raw/master/data/dataset-resized.zip"
+TRASHBOX_REPOS = {  # (repositório, pasta com as fotos); o teste e a validação ficam num repositório à parte
+    "TrashBox": ("https://github.com/nikhilvenkatkumsetty/TrashBox", "TrashBox_train_set"),
+    "TrashBox-testandvalid": (
+        "https://github.com/nikhilvenkatkumsetty/TrashBox-testandvalid", "TrashBox_testandvalid_set",
+    ),
+}
+# Classes do TrashBox → classes do classificador (as do TrashNet). Lixo eletrônico e hospitalar não vão para a
+# coleta seletiva comum: viram "trash" (Orgânico/Rejeito), como os eletrônicos do COCO. Manter as 6 classes do
+# TrashNet deixa o re-treino com as correções do usuário (que monta o treino com elas) compatível com o modelo.
+TRASHBOX_CLASSES = {
+    "cardboard": "cardboard", "glass": "glass", "metal": "metal", "paper": "paper", "plastic": "plastic",
+    "e-waste": "trash", "medical": "trash",
+}
+MATERIAL_CLASSES = ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
+MATERIAL_BASE = "yolo11s-cls.pt"  # 75% no ImageNet (o yolov8n-cls tem 69%): generaliza melhor para fotos variadas
+# AdamW com uma taxa perto da que o próprio Ultralytics escolheria num treino curto, decaindo em cosseno, e dropout
+# na saída: as fotos da internet têm rótulos imperfeitos (bitucas estão em "plástico" no TrashBox)
+MATERIAL_TRAINING = {"optimizer": "AdamW", "lr0": 0.0008, "cos_lr": True, "dropout": 0.1, "workers": 3}
+# 2ª etapa: poucas épocas, taxa baixa, com as fotos do TrashNet repetidas. No dataset combinado elas são só 13% do
+# treino, e o "trash" delas (embalagens) some no meio dos eletrônicos e do lixo hospitalar do TrashBox
+MATERIAL_FINETUNE = {"epochs": 3, "lr0": 0.0002, "warmup_epochs": 0, "trashnet_repeat": 3}
 
 
 def convert_coco_to_yolo(
@@ -212,6 +238,189 @@ def prepare_trashnet(
     return out_dir
 
 
+def download_trashbox(out_dir: str | Path = DATASETS_DIR / "trashbox_raw") -> dict[str, Path]:
+    """Baixa o TrashBox com o git (só a pasta das fotos, ~2,7 GB). Devolve a pasta de cada parte do dataset.
+
+    O repositório do treino traz as fotos duas vezes (``TrashBox_train_set`` e ``..._subfolders``): só uma é
+    baixada. Não baixa de novo o que já existe.
+    """
+    import subprocess
+
+    out_dir = Path(out_dir)
+    for name, (url, folder) in TRASHBOX_REPOS.items():
+        repo = out_dir / name
+        if (repo / folder).is_dir():
+            continue
+        if shutil.which("git") is None:
+            raise SystemExit(f"Instale o git, ou clone {url} em {repo} e rode de novo")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        env = {**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"}
+        subprocess.run(["git", "clone", "--depth", "1", "--filter=blob:none", "--no-checkout", url, str(repo)],
+                       check=True, env=env)
+        subprocess.run(["git", "-C", str(repo), "sparse-checkout", "set", "--no-cone", f"/{folder}/"], check=True)
+        subprocess.run(["git", "-C", str(repo), "checkout"], check=True, env=env)
+    test_and_val = out_dir / "TrashBox-testandvalid" / TRASHBOX_REPOS["TrashBox-testandvalid"][1]
+    return {
+        "train": out_dir / "TrashBox" / TRASHBOX_REPOS["TrashBox"][1],
+        "val": test_and_val / "val",
+        "test": test_and_val / "test",
+    }
+
+
+def _labeled(folder: Path, classes: dict[str, str] | None = None) -> list[tuple[Path, str, str]]:
+    """(foto, classe do classificador, classe original) de uma pasta <classe>/<foto>."""
+    from src.evaluate import IMAGE_SUFFIXES
+
+    return [
+        (img, classes[cls_dir.name] if classes else cls_dir.name, cls_dir.name)
+        for cls_dir in sorted(p for p in folder.iterdir() if p.is_dir() and (not classes or p.name in classes))
+        for img in sorted(cls_dir.iterdir())
+        if img.suffix.lower() in IMAGE_SUFFIXES
+    ]
+
+
+def _resized_copy(src: Path, dest: Path, short_side: int) -> bool:
+    """Grava a foto com no máximo ``short_side`` px no lado menor (o treino é a 224 px: o resto só deixa a leitura
+    lenta). Devolve se deu certo."""
+    import cv2
+
+    pixels = cv2.imread(str(src))
+    if pixels is None:
+        return False
+    scale = short_side / min(pixels.shape[:2])
+    if scale < 1:
+        pixels = cv2.resize(pixels, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return cv2.imwrite(str(dest), pixels, [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+
+def prepare_material_dataset(
+    out_dir: str | Path = DATASETS_DIR / "material",
+    trashnet_dir: str | Path | None = None,
+    trashbox: dict[str, Path] | None = None,
+    max_per_class: int | None = 2600,
+    short_side: int = 256,
+    seed: int = 0,
+) -> Path:
+    """Junta TrashNet e TrashBox para o ``yolo classify``, sem fotos de teste ou validação vazando para o treino.
+
+    - ``train/`` e ``val/``: as duas fontes juntas, com as 6 classes do TrashNet. Sai do treino toda foto que repete
+      uma da validação ou do teste (de qualquer das fontes), e as cópias dentro do próprio treino; sai da
+      validação o que repete o teste.
+    - ``test_trashnet/`` e ``test_trashbox/``: os testes originais, intactos (o do TrashNet é o mesmo de sempre).
+    - ``max_per_class``: limite de fotos de treino por classe. Sem ele, "trash" (eletrônicos + hospitalar) teria
+      quase o dobro das outras e o modelo puxaria para o rejeito. As do TrashNet entram sempre.
+
+    Devolve a pasta do dataset; ``info.json`` nela resume o que foi feito. Não refaz o que já existe.
+    """
+    from src.dedup import find_duplicates, find_repeats, readable
+
+    out_dir = Path(out_dir)
+    if (out_dir / "info.json").is_file():
+        return out_dir
+    trashnet = Path(trashnet_dir) if trashnet_dir else prepare_trashnet()
+    trashbox = trashbox or download_trashbox()
+    splits = {
+        split: [(p, c, "trashnet", o) for p, c, o in _labeled(trashnet / split)]
+        + [(p, c, "trashbox", o) for p, c, o in _labeled(Path(trashbox[split]), TRASHBOX_CLASSES)]
+        for split in ("train", "val", "test")
+    }
+    info: dict = {"fontes": {"trashnet": str(trashnet), "trashbox": {k: str(v) for k, v in trashbox.items()}}}
+
+    paths_of = {split: [item[0] for item in items] for split, items in splits.items()}
+    ok = set(readable(paths_of["train"]))
+    info["ilegiveis_no_treino"] = len(paths_of["train"]) - len(ok)
+    leaked = find_duplicates([p for p in paths_of["train"] if p in ok], paths_of["val"] + paths_of["test"])
+    repeated = find_repeats([p for p in paths_of["train"] if p in ok and p not in leaked])
+    val_leaked = find_duplicates(paths_of["val"], paths_of["test"])
+    info["treino_repete_validacao_ou_teste"] = len(leaked)
+    info["copias_dentro_do_treino"] = len(repeated)
+    info["validacao_repete_teste"] = len(val_leaked)
+
+    train = [it for it in splits["train"] if it[0] in ok and it[0] not in leaked and it[0] not in repeated]
+    if max_per_class:
+        rng = random.Random(seed)
+        capped = []
+        for cls in MATERIAL_CLASSES:
+            items = [it for it in train if it[1] == cls]
+            keep = [it for it in items if it[2] == "trashnet"]
+            rest = [it for it in items if it[2] != "trashnet"]
+            rng.shuffle(rest)
+            capped += keep + rest[: max(0, max_per_class - len(keep))]
+        train = capped
+    val = [it for it in splits["val"] if it[0] not in val_leaked]
+
+    def name(item) -> str:
+        path, _, source, original = item
+        return f"{source}_{original}_{path.stem}".replace(" ", "_") + ".jpg"
+
+    jobs = [(it[0], out_dir / split / it[1] / name(it)) for split, items in (("train", train), ("val", val))
+            for it in items]
+    with ThreadPoolExecutor(4) as pool:
+        written = sum(pool.map(lambda job: _resized_copy(*job, short_side), jobs))
+    for source in ("trashnet", "trashbox"):  # testes intactos, só com os nomes de classe do classificador
+        for path, cls, src, original in splits["test"]:
+            if src == source:
+                dest = out_dir / f"test_{source}" / cls / name((path, cls, src, original))
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, dest)
+
+    def count(items) -> dict[str, int]:
+        return {cls: sum(it[1] == cls for it in items) for cls in MATERIAL_CLASSES}
+
+    info["fotos"] = {
+        "train": count(train), "val": count(val),
+        **{f"test_{src}": count([it for it in splits["test"] if it[2] == src]) for src in ("trashnet", "trashbox")},
+    }
+    info["gravadas"] = written
+    (out_dir / "info.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out_dir
+
+
+def oversampled(data_dir: str | Path, out_dir: str | Path, prefix: str = "trashnet_", times: int = 3) -> Path:
+    """Cópia do dataset (por hard link: quase não ocupa disco) com as fotos de treino que começam com ``prefix``
+    repetidas ``times`` vezes. A validação fica igual."""
+    data_dir, out_dir = Path(data_dir), Path(out_dir)
+    shutil.rmtree(out_dir, ignore_errors=True)
+    for split in ("train", "val"):
+        for img in sorted((data_dir / split).rglob("*.jpg")):
+            copies = times if split == "train" and img.name.startswith(prefix) else 1
+            for k in range(copies):
+                dest = out_dir / split / img.parent.name / (img.name if k == 0 else f"rep{k}_{img.name}")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(img, dest)
+                except OSError:  # outro disco, ou sistema de arquivos sem hard link
+                    shutil.copyfile(img, dest)
+    return out_dir
+
+
+def train_material(
+    data_dir: str | Path,
+    base_model: str | Path,
+    epochs: int = 20,
+    imgsz: int = 224,
+    batch: int = 32,
+    device: str | None = None,
+    project_dir: str | Path = ROOT / "runs",
+    output: str | Path = MATERIAL_MODEL,
+) -> Path:
+    """O classificador de material em duas etapas: o dataset combinado inteiro e, depois, o ajuste fino com o
+    TrashNet repetido (``MATERIAL_FINETUNE``). Copia o resultado para ``output`` e devolve esse caminho."""
+    project_dir = Path(project_dir)
+    first = train_classifier(
+        data_dir, base_model, epochs, imgsz, batch, device, project_dir, output=project_dir / "material" / "etapa1.pt",
+        name="material", **MATERIAL_TRAINING,
+    )
+    finetune = dict(MATERIAL_FINETUNE)
+    repeat, ft_epochs = finetune.pop("trashnet_repeat"), finetune.pop("epochs")
+    data_ft = oversampled(data_dir, Path(data_dir).parent / f"{Path(data_dir).name}_ajuste", times=repeat)
+    return train_classifier(
+        data_ft, first, ft_epochs, imgsz, batch, device, project_dir, output=output, name="material_ajuste",
+        **{**MATERIAL_TRAINING, **finetune},
+    )
+
+
 def train_classifier(
     data_dir: str | Path,
     base_model: str | Path = MODELS_DIR / "yolov8n-cls.pt",
@@ -304,19 +513,35 @@ def main(argv: list[str] | None = None) -> None:
     own.add_argument("--data", required=True)
     trash = sub.add_parser("trashnet", help="treina o classificador de material com o TrashNet")
     trash.add_argument("--zip", help="dataset-resized.zip já baixado")
+    mix = sub.add_parser("material", help="treina o classificador de material com o TrashNet + TrashBox")
+    mix.add_argument("--zip", help="dataset-resized.zip do TrashNet já baixado")
+    mix.add_argument("--trashbox", help="pasta com os clones de TrashBox e TrashBox-testandvalid (padrão: baixa)")
+    mix.add_argument("--max-per-class", type=int, default=2600)
 
+    bases = {"trashnet": MODELS_DIR / "yolov8n-cls.pt", "material": MODELS_DIR / MATERIAL_BASE}
     for name, p in sub.choices.items():
-        classify = name == "trashnet"
-        p.add_argument("--epochs", type=int, default=30 if classify else 50)
+        classify = name in bases
+        p.add_argument("--epochs", type=int, default={"trashnet": 30, "material": 20}.get(name, 50))
         p.add_argument("--imgsz", type=int, default=224 if classify else 640)
         p.add_argument("--batch", type=int, default=32 if classify else 16)
         p.add_argument("--device", help="cpu, 0 (GPU), mps…")
-        p.add_argument(
-            "--base", default=str(MODELS_DIR / "yolov8n-cls.pt" if classify else DEFAULT_MODEL), help="peso inicial"
-        )
+        p.add_argument("--base", default=str(bases.get(name, DEFAULT_MODEL)), help="peso inicial")
         p.add_argument("--runs-dir", default=str(ROOT / "runs"), help="onde salvar o treino (ex.: pasta do Drive)")
 
     args = parser.parse_args(argv)
+    if args.source == "material":
+        from src.weights import resolve
+
+        trashbox = None
+        if args.trashbox:
+            trashbox = download_trashbox(args.trashbox)  # só confere: com os clones prontos, não baixa nada
+        data_dir = prepare_material_dataset(
+            trashnet_dir=prepare_trashnet(zip_path=args.zip), trashbox=trashbox, max_per_class=args.max_per_class
+        )
+        print(json.dumps(json.loads((data_dir / "info.json").read_text(encoding="utf-8"))["fotos"], indent=1))
+        out = train_material(data_dir, resolve(args.base), args.epochs, args.imgsz, args.batch, args.device, args.runs_dir)
+        print(f"Classificador de material salvo em {out}")
+        return
     if args.source == "trashnet":
         data_dir = prepare_trashnet(zip_path=args.zip)
         out = train_classifier(data_dir, args.base, args.epochs, args.imgsz, args.batch, args.device, args.runs_dir)

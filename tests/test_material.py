@@ -96,6 +96,16 @@ def test_modo_um_item_nao_inventa_quando_a_textura_duvida(det_with):
     assert detector.detect(PLAIN, waste_only=True) == []
 
 
+def test_modo_um_item_usa_a_certeza_da_categoria_e_nao_da_classe(det_with):
+    # Papelão 45% + papel 40%: nenhuma classe passa de 60%, mas a categoria Papel tem 85%
+    fake = FakeTexture()
+    fake.prediction = TexturePrediction(
+        "cardboard", 0.45, {"Plástico": 0.05, "Papel": 0.85, "Metal": 0.04, "Vidro": 0.03, "Orgânico/Rejeito": 0.03},
+    )
+    (whole,) = det_with(fake).detect(PLAIN, waste_only=True, single_item=True)
+    assert whole.category == "Papel" and whole.material_confidence == pytest.approx(0.45)
+
+
 def test_foto_de_perto_sem_deteccao_usa_a_foto_inteira(det_with):
     # Sem "1 objeto por foto": se o detector não achar nada, a foto inteira entra como plano B
     (whole,) = det_with(FakeTexture("metal", "Metal", 0.9)).detect(PLAIN, waste_only=True)

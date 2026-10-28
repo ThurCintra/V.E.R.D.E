@@ -1,0 +1,1123 @@
+{
+ "descricao": "Sistema inteiro (detector + classificador de material) nos testes do TrashNet e do TrashBox. 'antigo' = classificador yolov8n-cls só TrashNet com o limite antigo (certeza da classe >= 0,6); 'novo' = yolo11s-cls TrashNet + TrashBox com o limite novo (certeza da categoria >= 0,5).",
+ "antigo|coco|test_trashnet|lixeira": {
+  "accuracy": 0.9367,
+  "macro_f1": 0.9268,
+  "n": 379,
+  "recognized": 0.9763,
+  "recall": {
+   "Plástico": 0.8889,
+   "Papel": 0.953,
+   "Metal": 0.9355,
+   "Vidro": 0.9733,
+   "Orgânico/Rejeito": 0.8571
+  },
+  "confusion": [
+   [
+    64,
+    0,
+    1,
+    3,
+    2,
+    2
+   ],
+   [
+    0,
+    142,
+    2,
+    0,
+    2,
+    3
+   ],
+   [
+    1,
+    1,
+    58,
+    0,
+    0,
+    2
+   ],
+   [
+    1,
+    0,
+    0,
+    73,
+    0,
+    1
+   ],
+   [
+    2,
+    0,
+    0,
+    0,
+    18,
+    1
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|coco|test_trashnet|normal": {
+  "accuracy": 0.8443,
+  "macro_f1": 0.8078,
+  "n": 379,
+  "recognized": 0.9763,
+  "recall": {
+   "Plástico": 0.7778,
+   "Papel": 0.8725,
+   "Metal": 0.8065,
+   "Vidro": 0.88,
+   "Orgânico/Rejeito": 0.8571
+  },
+  "confusion": [
+   [
+    56,
+    2,
+    1,
+    4,
+    7,
+    2
+   ],
+   [
+    2,
+    130,
+    2,
+    1,
+    11,
+    3
+   ],
+   [
+    1,
+    1,
+    50,
+    3,
+    5,
+    2
+   ],
+   [
+    3,
+    0,
+    1,
+    66,
+    4,
+    1
+   ],
+   [
+    2,
+    0,
+    0,
+    0,
+    18,
+    1
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|coco|test_trashbox|lixeira": {
+  "accuracy": 0.3932,
+  "macro_f1": 0.344,
+  "n": 1793,
+  "recognized": 0.9264,
+  "recall": {
+   "Plástico": 0.2313,
+   "Papel": 0.8223,
+   "Metal": 0.4385,
+   "Vidro": 0.311,
+   "Orgânico/Rejeito": 0.0581
+  },
+  "confusion": [
+   [
+    62,
+    90,
+    48,
+    12,
+    25,
+    31
+   ],
+   [
+    19,
+    421,
+    32,
+    11,
+    7,
+    22
+   ],
+   [
+    22,
+    61,
+    114,
+    43,
+    4,
+    16
+   ],
+   [
+    66,
+    57,
+    34,
+    79,
+    9,
+    9
+   ],
+   [
+    41,
+    236,
+    95,
+    44,
+    29,
+    54
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|coco|test_trashbox|normal": {
+  "accuracy": 0.3932,
+  "macro_f1": 0.3711,
+  "n": 1793,
+  "recognized": 0.9214,
+  "recall": {
+   "Plástico": 0.25,
+   "Papel": 0.6855,
+   "Metal": 0.3538,
+   "Vidro": 0.3425,
+   "Orgânico/Rejeito": 0.2164
+  },
+  "confusion": [
+   [
+    67,
+    66,
+    47,
+    20,
+    35,
+    33
+   ],
+   [
+    37,
+    351,
+    37,
+    11,
+    53,
+    23
+   ],
+   [
+    35,
+    51,
+    92,
+    48,
+    18,
+    16
+   ],
+   [
+    74,
+    42,
+    32,
+    87,
+    7,
+    12
+   ],
+   [
+    37,
+    170,
+    78,
+    49,
+    108,
+    57
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|yoloe|test_trashnet|lixeira": {
+  "accuracy": 0.9393,
+  "macro_f1": 0.9253,
+  "n": 379,
+  "recognized": 0.9842,
+  "recall": {
+   "Plástico": 0.9028,
+   "Papel": 0.953,
+   "Metal": 0.9355,
+   "Vidro": 0.9733,
+   "Orgânico/Rejeito": 0.8571
+  },
+  "confusion": [
+   [
+    65,
+    0,
+    1,
+    3,
+    2,
+    1
+   ],
+   [
+    0,
+    142,
+    2,
+    1,
+    2,
+    2
+   ],
+   [
+    1,
+    0,
+    58,
+    1,
+    0,
+    2
+   ],
+   [
+    1,
+    0,
+    0,
+    73,
+    0,
+    1
+   ],
+   [
+    2,
+    0,
+    0,
+    1,
+    18,
+    0
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|yoloe|test_trashnet|normal": {
+  "accuracy": 0.8945,
+  "macro_f1": 0.8897,
+  "n": 379,
+  "recognized": 0.9842,
+  "recall": {
+   "Plástico": 0.875,
+   "Papel": 0.8993,
+   "Metal": 0.9032,
+   "Vidro": 0.9333,
+   "Orgânico/Rejeito": 0.7619
+  },
+  "confusion": [
+   [
+    63,
+    5,
+    1,
+    2,
+    0,
+    1
+   ],
+   [
+    7,
+    134,
+    1,
+    4,
+    1,
+    2
+   ],
+   [
+    2,
+    0,
+    56,
+    2,
+    0,
+    2
+   ],
+   [
+    3,
+    1,
+    0,
+    70,
+    0,
+    1
+   ],
+   [
+    3,
+    1,
+    0,
+    1,
+    16,
+    0
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|yoloe|test_trashbox|lixeira": {
+  "accuracy": 0.3887,
+  "macro_f1": 0.3326,
+  "n": 1793,
+  "recognized": 0.9191,
+  "recall": {
+   "Plástico": 0.2276,
+   "Papel": 0.8438,
+   "Metal": 0.45,
+   "Vidro": 0.2992,
+   "Orgânico/Rejeito": 0.022
+  },
+  "confusion": [
+   [
+    61,
+    96,
+    50,
+    14,
+    23,
+    24
+   ],
+   [
+    19,
+    432,
+    30,
+    10,
+    5,
+    16
+   ],
+   [
+    24,
+    60,
+    117,
+    39,
+    2,
+    18
+   ],
+   [
+    64,
+    59,
+    34,
+    76,
+    5,
+    16
+   ],
+   [
+    44,
+    239,
+    90,
+    44,
+    11,
+    71
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "antigo|yoloe|test_trashbox|normal": {
+  "accuracy": 0.3703,
+  "macro_f1": 0.3271,
+  "n": 1793,
+  "recognized": 0.9158,
+  "recall": {
+   "Plástico": 0.2351,
+   "Papel": 0.752,
+   "Metal": 0.4385,
+   "Vidro": 0.3543,
+   "Orgânico/Rejeito": 0.024
+  },
+  "confusion": [
+   [
+    63,
+    90,
+    39,
+    33,
+    18,
+    25
+   ],
+   [
+    48,
+    385,
+    40,
+    18,
+    2,
+    19
+   ],
+   [
+    32,
+    50,
+    114,
+    45,
+    0,
+    19
+   ],
+   [
+    65,
+    50,
+    30,
+    90,
+    3,
+    16
+   ],
+   [
+    51,
+    219,
+    95,
+    50,
+    12,
+    72
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|yoloe|test_trashnet|lixeira": {
+  "accuracy": 0.9235,
+  "macro_f1": 0.8971,
+  "n": 379,
+  "recognized": 0.9947,
+  "recall": {
+   "Plástico": 0.8889,
+   "Papel": 0.9262,
+   "Metal": 0.9516,
+   "Vidro": 0.96,
+   "Orgânico/Rejeito": 0.8095
+  },
+  "confusion": [
+   [
+    64,
+    0,
+    1,
+    7,
+    0,
+    0
+   ],
+   [
+    1,
+    138,
+    2,
+    1,
+    5,
+    2
+   ],
+   [
+    1,
+    1,
+    59,
+    0,
+    1,
+    0
+   ],
+   [
+    1,
+    0,
+    1,
+    72,
+    1,
+    0
+   ],
+   [
+    2,
+    1,
+    0,
+    1,
+    17,
+    0
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|yoloe|test_trashnet|normal": {
+  "accuracy": 0.8549,
+  "macro_f1": 0.8176,
+  "n": 379,
+  "recognized": 0.9947,
+  "recall": {
+   "Plástico": 0.8194,
+   "Papel": 0.8456,
+   "Metal": 0.9355,
+   "Vidro": 0.8667,
+   "Orgânico/Rejeito": 0.7619
+  },
+  "confusion": [
+   [
+    59,
+    4,
+    3,
+    4,
+    2,
+    0
+   ],
+   [
+    3,
+    126,
+    2,
+    3,
+    13,
+    2
+   ],
+   [
+    3,
+    1,
+    58,
+    0,
+    0,
+    0
+   ],
+   [
+    5,
+    1,
+    1,
+    65,
+    3,
+    0
+   ],
+   [
+    3,
+    1,
+    0,
+    1,
+    16,
+    0
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|yoloe|test_trashbox|lixeira": {
+  "accuracy": 0.8979,
+  "macro_f1": 0.8976,
+  "n": 1793,
+  "recognized": 0.9905,
+  "recall": {
+   "Plástico": 0.8955,
+   "Papel": 0.9355,
+   "Metal": 0.8962,
+   "Vidro": 0.8819,
+   "Orgânico/Rejeito": 0.8697
+  },
+  "confusion": [
+   [
+    240,
+    5,
+    4,
+    8,
+    8,
+    3
+   ],
+   [
+    8,
+    479,
+    10,
+    2,
+    11,
+    2
+   ],
+   [
+    6,
+    4,
+    233,
+    2,
+    11,
+    4
+   ],
+   [
+    13,
+    1,
+    8,
+    224,
+    6,
+    2
+   ],
+   [
+    17,
+    25,
+    9,
+    8,
+    434,
+    6
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|yoloe|test_trashbox|normal": {
+  "accuracy": 0.7825,
+  "macro_f1": 0.7702,
+  "n": 1793,
+  "recognized": 0.9905,
+  "recall": {
+   "Plástico": 0.7948,
+   "Papel": 0.8477,
+   "Metal": 0.7,
+   "Vidro": 0.6929,
+   "Orgânico/Rejeito": 0.7976
+  },
+  "confusion": [
+   [
+    213,
+    9,
+    7,
+    12,
+    24,
+    3
+   ],
+   [
+    30,
+    434,
+    15,
+    7,
+    24,
+    2
+   ],
+   [
+    26,
+    12,
+    182,
+    9,
+    27,
+    4
+   ],
+   [
+    32,
+    11,
+    19,
+    176,
+    14,
+    2
+   ],
+   [
+    34,
+    33,
+    17,
+    11,
+    398,
+    6
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|coco|test_trashnet|lixeira": {
+  "accuracy": 0.9235,
+  "macro_f1": 0.8979,
+  "n": 379,
+  "recognized": 0.9894,
+  "recall": {
+   "Plástico": 0.8889,
+   "Papel": 0.9262,
+   "Metal": 0.9516,
+   "Vidro": 0.96,
+   "Orgânico/Rejeito": 0.8095
+  },
+  "confusion": [
+   [
+    64,
+    0,
+    0,
+    7,
+    0,
+    1
+   ],
+   [
+    0,
+    138,
+    2,
+    1,
+    6,
+    2
+   ],
+   [
+    1,
+    1,
+    59,
+    0,
+    1,
+    0
+   ],
+   [
+    1,
+    0,
+    1,
+    72,
+    1,
+    0
+   ],
+   [
+    1,
+    1,
+    0,
+    1,
+    17,
+    1
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|coco|test_trashnet|normal": {
+  "accuracy": 0.8417,
+  "macro_f1": 0.8059,
+  "n": 379,
+  "recognized": 0.9894,
+  "recall": {
+   "Plástico": 0.8333,
+   "Papel": 0.8255,
+   "Metal": 0.871,
+   "Vidro": 0.84,
+   "Orgânico/Rejeito": 0.9048
+  },
+  "confusion": [
+   [
+    60,
+    1,
+    1,
+    4,
+    5,
+    1
+   ],
+   [
+    1,
+    123,
+    3,
+    3,
+    17,
+    2
+   ],
+   [
+    2,
+    0,
+    54,
+    0,
+    6,
+    0
+   ],
+   [
+    4,
+    1,
+    2,
+    63,
+    5,
+    0
+   ],
+   [
+    1,
+    0,
+    0,
+    0,
+    19,
+    1
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|coco|test_trashbox|lixeira": {
+  "accuracy": 0.8957,
+  "macro_f1": 0.8956,
+  "n": 1793,
+  "recognized": 0.9905,
+  "recall": {
+   "Plástico": 0.8918,
+   "Papel": 0.9316,
+   "Metal": 0.8962,
+   "Vidro": 0.8819,
+   "Orgânico/Rejeito": 0.8677
+  },
+  "confusion": [
+   [
+    239,
+    5,
+    4,
+    8,
+    10,
+    2
+   ],
+   [
+    8,
+    477,
+    10,
+    2,
+    11,
+    4
+   ],
+   [
+    7,
+    4,
+    233,
+    2,
+    10,
+    4
+   ],
+   [
+    14,
+    1,
+    7,
+    224,
+    6,
+    2
+   ],
+   [
+    19,
+    26,
+    9,
+    7,
+    433,
+    5
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ },
+ "novo|coco|test_trashbox|normal": {
+  "accuracy": 0.7713,
+  "macro_f1": 0.7629,
+  "n": 1793,
+  "recognized": 0.99,
+  "recall": {
+   "Plástico": 0.8134,
+   "Papel": 0.793,
+   "Metal": 0.6346,
+   "Vidro": 0.7165,
+   "Orgânico/Rejeito": 0.8257
+  },
+  "confusion": [
+   [
+    218,
+    3,
+    9,
+    8,
+    27,
+    3
+   ],
+   [
+    20,
+    406,
+    11,
+    6,
+    65,
+    4
+   ],
+   [
+    34,
+    10,
+    165,
+    11,
+    36,
+    4
+   ],
+   [
+    41,
+    8,
+    8,
+    182,
+    13,
+    2
+   ],
+   [
+    29,
+    26,
+    18,
+    9,
+    412,
+    5
+   ]
+  ],
+  "labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito"
+  ],
+  "predicted_labels": [
+   "Plástico",
+   "Papel",
+   "Metal",
+   "Vidro",
+   "Orgânico/Rejeito",
+   "nenhum"
+  ]
+ }
+}

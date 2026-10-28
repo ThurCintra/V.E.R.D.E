@@ -10,6 +10,8 @@ from src.corrections import (
     MIN_CORRECTIONS,
     NOT_WASTE,
     CorrectionStore,
+    _reference,
+    _sample,
     previous_model_path,
     restore_previous,
     retrain,
@@ -108,3 +110,26 @@ def test_retreino_de_verdade_troca_o_modelo_e_permite_voltar(storage, tmp_path, 
 
 def test_restaurar_sem_backup(storage):
     assert restore_previous() is False
+
+
+def test_referencia_usa_o_dataset_combinado_quando_existe(tmp_path, monkeypatch):
+    import src.train
+
+    mix = tmp_path / "datasets" / "material"
+    for folder in ("train", "val", "test_trashnet", "test_trashbox"):
+        (mix / folder).mkdir(parents=True)
+    trashnet = tmp_path / "datasets" / "trashnet"
+    monkeypatch.setattr(src.train, "DATASETS_DIR", tmp_path / "datasets")
+    monkeypatch.setattr(src.train, "prepare_trashnet", lambda: trashnet)
+    # Dataset combinado pela metade (sem info.json): fica o TrashNet
+    assert _reference(None) == (trashnet, [trashnet / "test"], False)
+    (mix / "info.json").write_text("{}")
+    assert _reference(None) == (mix, [mix / "test_trashnet", mix / "test_trashbox"], True)
+    assert _reference(tmp_path / "tn") == (tmp_path / "tn", [tmp_path / "tn" / "test"], False)
+
+
+def test_amostra_por_classe(tmp_path):
+    items = [(tmp_path / f"{cls}{i}.jpg", cls) for cls, n in (("glass", 5), ("trash", 2)) for i in range(n)]
+    sample = _sample(items, 3)
+    assert sorted(c for _, c in sample) == ["glass"] * 3 + ["trash"] * 2
+    assert sample == _sample(items, 3)  # sempre a mesma amostra

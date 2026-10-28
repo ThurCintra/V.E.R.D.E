@@ -1,6 +1,7 @@
 """Avaliação: mede o quanto o sistema acerta, para comparar versões antes de trocar o modelo em produção.
 
     python -m src.evaluate material                 # classificador de material no teste do TrashNet
+    python -m src.evaluate material --test datasets/material/test_trashbox --report material_trashbox
     python -m src.evaluate system                   # sistema inteiro: só COCO × COCO + material
     python -m src.evaluate detector --models yolov8n.pt yolov8s.pt   # detectores no coco128
 
@@ -177,8 +178,10 @@ def main(argv: list[str] | None = None) -> None:
     mat = sub.add_parser("material")
     mat.add_argument("--model", default=str(MATERIAL_MODEL))
     mat.add_argument("--test", default=str(TRASHNET_TEST))
+    mat.add_argument("--report", default="material", help="nome dos arquivos em reports/")
     sysp = sub.add_parser("system")
     sysp.add_argument("--test", default=str(TRASHNET_TEST))
+    sysp.add_argument("--report", default="sistema", help="nome dos arquivos em reports/")
     sysp.add_argument("--detector", default=None, help="peso do detector (padrão: o mesmo do sistema)")
     det = sub.add_parser("detector")
     det.add_argument("--models", nargs="+", default=["yolov8n.pt", "yolov8s.pt"])
@@ -188,9 +191,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.what == "material":
         result = evaluate_material(args.model, args.test)
-        _save("material", result)
-        plot_confusion(result["classes"], "Classificador de material (TrashNet, teste)", REPORTS_DIR / "material_classes.png")
-        plot_confusion(result["categories"], "Classificador de material: categorias", REPORTS_DIR / "material_categorias.png")
+        _save(args.report, result)
+        where = Path(args.test).name
+        plot_confusion(result["classes"], f"Classificador de material ({where})", REPORTS_DIR / f"{args.report}_classes.png")
+        plot_confusion(result["categories"], f"Classificador de material: categorias ({where})",
+                       REPORTS_DIR / f"{args.report}_categorias.png")
         print(f"Classes:    acurácia {result['classes']['accuracy']:.1%}")
         print(f"Categorias: acurácia {result['categories']['accuracy']:.1%}")
         print(_per_class_table(result["classes"]))
@@ -201,10 +206,10 @@ def main(argv: list[str] | None = None) -> None:
         for name, material in (("so_coco", None), ("coco_material", "auto")):
             detector = Detector(args.detector, material_model=material)
             results[name] = evaluate_system(detector, args.test)
-            plot_confusion(results[name], f"Sistema ({detector.description})", REPORTS_DIR / f"sistema_{name}.png")
+            plot_confusion(results[name], f"Sistema ({detector.description})", REPORTS_DIR / f"{args.report}_{name}.png")
             r = results[name]
             print(f"{detector.description:28} acurácia {r['accuracy']:.1%} · reconheceu algo em {r['recognized']:.1%}")
-        _save("sistema", results)
+        _save(args.report, results)
     else:
         results = [evaluate_detector(m, args.data, s) for m in args.models for s in args.imgsz]
         _save("detectores", {"data": args.data, "results": results})

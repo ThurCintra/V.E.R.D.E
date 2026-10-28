@@ -21,7 +21,9 @@ datas = [
     (str(ROOT / ".streamlit"), ".streamlit"),
     (str(ROOT / "data" / "mesa_garrafas_banana.jpg"), "data"),
 ]
-datas += [(str(p), "models") for p in (ROOT / "models").glob("*.pt") if p.name not in SKIP_MODELS]
+# Os pesos-base de classificação (yolo11s-cls.pt…) só servem para treinar o material_cls.pt: também ficam de fora
+datas += [(str(p), "models") for p in (ROOT / "models").glob("*.pt")
+          if p.name not in SKIP_MODELS and not p.name.endswith("-cls.pt")]
 
 datas += collect_data_files("streamlit")  # front-end (static/)
 datas += collect_data_files("ultralytics")  # cfg/*.yaml dos modelos e do rastreador
