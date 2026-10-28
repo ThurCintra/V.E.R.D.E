@@ -9,6 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 import ui
+from src import paths
 from src.impact import FACTORS, compute_impact
 from src.recycling import CATEGORIES
 from src.report import to_csv, to_pdf, totals_from_records
@@ -40,6 +41,9 @@ def chart_style(fig):
 
 
 ui.hero("Meu impacto", "Tudo o que você registrou e o quanto isso ajudou o meio ambiente.")
+if paths.PUBLIC:
+    st.caption("No site público, estes números somam os registros de todos os visitantes e são apagados quando o "
+               "site reinicia.")
 
 today = datetime.now(TZ).date()
 period = st.pills("Período", PERIODS, default=PERIODS[1], required=True, label_visibility="collapsed")

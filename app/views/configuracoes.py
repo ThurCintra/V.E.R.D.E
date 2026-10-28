@@ -26,7 +26,8 @@ with st.container(border=True):
     st.markdown("#### 🧪 Casos duvidosos")
     collector = ui.review()
     if collector is None:
-        st.caption("Desligado (WASTE_REVIEW=0).")
+        st.caption("Desligado no site público (seriam fotos dos visitantes)." if paths.PUBLIC
+                   else "Desligado (WASTE_REVIEW=0).")
     else:
         n = collector.count()
         st.markdown(f"O sistema guardou **{n}** foto(s) em que ficou em dúvida, já com as marcações, para quem quiser "

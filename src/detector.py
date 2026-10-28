@@ -42,6 +42,7 @@ from src.material_classifier import (
     top,
 )
 from src.open_vocab import IGNORED_VOCABULARY, VOCAB_CATEGORY, is_open_vocab, load_open_vocab
+from src import paths
 from src.paths import CUSTOM_MODEL, DEFAULT_MODEL
 from src.preprocess import SceneCalibration, enhance
 from src.recycling import CATEGORIES, COCO_RULES, DEFAULT_WEIGHT_G, METAL, category_from_name
@@ -190,7 +191,9 @@ class Detector:
             material_model=None if material.lower() in ("off", "0", "none") else material,
             material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.5")),
             mode=os.environ.get("WASTE_MODE", "alta"),
-            detector_kind=os.environ.get("WASTE_DETECTOR", "yolo-world"),
+            # No site público, o COCO: mediu igual ao YOLOE e não precisa baixar nem carregar o CLIP (~600 MB a
+            # mais de memória na primeira vez), que estouraria o limite dos servidores gratuitos
+            detector_kind=os.environ.get("WASTE_DETECTOR", "coco" if paths.PUBLIC else "yolo-world"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
         )
 

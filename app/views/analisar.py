@@ -7,6 +7,7 @@ import cv2
 import streamlit as st
 
 import ui
+from src import paths
 from src.detector import load_image
 from src.paths import DATA_DIR
 from src.pipeline import WastePipeline
@@ -14,6 +15,8 @@ from src.recycling import CATEGORIES, label_pt
 
 EXAMPLE = DATA_DIR / "mesa_garrafas_banana.jpg"
 SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
+if paths.PUBLIC:  # a câmera contínua é a do computador que roda o sistema: no site, a do servidor (que não tem)
+    SOURCES = SOURCES[:2]
 
 ui.hero("Analisar resíduos", "Envie ou tire uma foto: o V.E.R.D.E. mostra em qual lixeira vai cada item.")
 cfg = ui.settings()
@@ -34,9 +37,13 @@ def empty_state() -> None:
         [
             ("Envie ou tire uma foto", "De um objeto ou de vários. Quanto mais perto e com mais luz, melhor."),
             ("Veja a lixeira certa", "Cada item ganha um número e a cor da lixeira onde deve ir."),
-            ("Errou? Toque na certa", "Sua correção fica guardada e ensina o sistema a acertar mais."),
+            ("Errou? Toque na certa", "A foto mostra a lixeira certa."
+             if paths.PUBLIC else "Sua correção fica guardada e ensina o sistema a acertar mais."),
         ]
     )
+    if paths.PUBLIC:
+        st.caption(f"Versão online de demonstração. A câmera contínua, a calibração do fundo e o re-treino com as "
+                   f"suas correções ficam no [aplicativo para Windows]({paths.DESKTOP_APP_URL}).")
     st.write("")
     st.markdown("**As 5 lixeiras da coleta seletiva**")
     ui.legend()

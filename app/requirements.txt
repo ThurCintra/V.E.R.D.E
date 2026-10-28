@@ -1,0 +1,16 @@
+# Dependências do site (Streamlit Community Cloud). O Streamlit Cloud procura primeiro na pasta do arquivo
+# principal (app/dashboard.py), então usa este arquivo no lugar do requirements.txt da raiz.
+# Só o que o dashboard usa: sem a API (FastAPI), os testes, o CLIP (vocabulário do YOLO-World; o site usa o COCO)
+# e o transformers (especialista opcional do Hugging Face).
+ultralytics>=8.3,<9
+numpy>=1.26
+opencv-python>=4.9
+supervision>=0.26
+trackers>=2.6
+scipy>=1.11
+streamlit>=1.40
+plotly>=5.24
+pandas>=2.2
+fpdf2>=2.8
+python-dotenv>=1.0
+google-genai>=1.0      # Deep Scan com o Gemini, se houver GEMINI_API_KEY nos segredos do app

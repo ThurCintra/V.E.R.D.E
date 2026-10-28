@@ -38,6 +38,7 @@ src/
   report.py              exportação CSV e PDF
   api.py                 API REST (FastAPI)
 app/dashboard.py         dashboard Streamlit (menu e tema); páginas em app/views/, peças em app/ui.py
+app/requirements.txt     dependências do site (Streamlit Community Cloud); packages.txt tem as do sistema
 models/material_cls.pt   classificador de material já treinado (vem no repositório)
 notebooks/               treino do detector no Google Colab (GPU grátis)
 desktop/                 aplicativo de desktop: lançador, ícone, PyInstaller (VERDE.exe) e instalador (Inno Setup)
@@ -95,6 +96,39 @@ O executável vai para `dist\VERDE\` (o `VERDE.exe` e a pasta `_internal`, cerca
 instalador para `dist\instalador\VERDE-Instalador.exe`. `VERDE.exe --check` é um autoteste que carrega os modelos,
 analisa a foto de exemplo e grava o resultado no `verde.log`. `python desktop/verde.py` abre a mesma janela a
 partir do código-fonte.
+
+## Site (Streamlit Community Cloud)
+
+O dashboard pode ficar online de graça no [Streamlit Community Cloud](https://share.streamlit.io), entrando com a
+conta do GitHub (não precisa de conta nova):
+
+1. Em https://share.streamlit.io, entre com **Continue with GitHub** e autorize o acesso aos repositórios.
+2. **Create app** → *Deploy a public app from GitHub*.
+3. **Repository** `ThurCintra/V.E.R.D.E` · **Branch** `remove-esp32-e-exe` (ou `main`, depois do merge) ·
+   **Main file path** `app/dashboard.py` · **App URL**: o endereço que quiser (ex.: `verde-residuos`).
+4. **Advanced settings** → **Python version** `3.12` → **Save** → **Deploy**.
+
+A primeira instalação leva alguns minutos (o PyTorch é grande). O Streamlit Cloud usa o `app/requirements.txt` (só o
+que o dashboard precisa) e o `packages.txt`. Depois, cada push na branch atualiza o site sozinho.
+
+No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (várias pessoas no mesmo servidor):
+
+- detector COCO: o YOLO-World precisaria de ~600 MB a mais de memória para montar o vocabulário, e nos testes o COCO
+  acerta o mesmo que o YOLOE (veja *Resultados medidos*);
+- sem **Câmera contínua**, que seria a câmera do servidor: use **Tirar foto**, com a câmera do celular ou do
+  computador de quem está acessando;
+- sem calibração do fundo, re-treino e casos duvidosos (eles mudariam o sistema de todos, ou guardariam fotos dos
+  visitantes no servidor); as configurações valem só para cada visitante, e as correções, só para a foto na tela;
+- o **Meu impacto** soma os registros de todos os visitantes e é apagado quando o site reinicia.
+
+Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem cerca de
+1 GB de memória garantido. O workflow `.github/workflows/site.yml` simula o Streamlit Cloud a cada mudança (instala só
+o `app/requirements.txt`, analisa a foto de exemplo num navegador) e mede a memória usada.
+
+A API REST não roda no Streamlit Cloud. Para o sistema inteiro online (dashboard + API), é preciso uma hospedagem com
+Docker, como um Space do Hugging Face (que passou a exigir o plano PRO para Docker) ou um servidor próprio com o
+`docker compose` (veja *Deploy com Docker*). `WASTE_PUBLIC=1` liga o modo site público em outro servidor;
+`WASTE_PUBLIC=0` desliga.
 
 ## Como rodar (código-fonte)
 
@@ -299,6 +333,8 @@ bem iluminado e ocupando boa parte da foto continua sendo o que mais acerta.
 | `WASTE_SINGLE_ITEM`    | 0      | 1 = modo lixeira (1 item por foto)                                      |
 | `WASTE_REVIEW`         | 1      | 0 = não guarda casos duvidosos                                          |
 | `WASTE_REVIEW_CONF`    | 0.5    | detecções abaixo dessa confiança vão para revisão                       |
+| `WASTE_HF_MODEL`       | —      | especialista de textura do Hugging Face no lugar do classificador local (não medido) |
+| `WASTE_PUBLIC`         | auto   | 1 = modo site público (liga sozinho no Streamlit Community Cloud)       |
 
 ## Corrigindo os erros e re-treinando (botão no dashboard)
 
