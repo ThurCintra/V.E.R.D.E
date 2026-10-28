@@ -7,6 +7,7 @@ miniatura de 640 px. Resultado em notices do GitHub Actions.
 import json
 import random
 import sys
+import time
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.evaluate import iou  # noqa: E402
-from src.train import TACO_ANNOTATIONS_URL  # noqa: E402
+from src.train import TACO_ANNOTATIONS_URL, fetch_url  # noqa: E402
 
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 150
 out = Path("taco_check")
@@ -36,17 +37,19 @@ def fetch(img):
     got = {}
     for kind, key in (("full", "flickr_url"), ("thumb", "flickr_640_url")):
         dest = out / f"{img['id']}_{kind}.jpg"
-        try:
-            if not dest.is_file():
-                urllib.request.urlretrieve(img[key], dest)
+        if not img.get(key):
+            got[kind] = "sem endereço"
+        elif dest.is_file() or fetch_url(img[key], dest, tries=4, wait_s=3):
             got[kind] = dest
-        except Exception as err:  # noqa: BLE001
-            got[kind] = f"{type(err).__name__}: {err}"[:80]
+        else:
+            got[kind] = "recusado mesmo esperando"
     return img, got
 
 
-with ThreadPoolExecutor(16) as pool:
+start = time.time()
+with ThreadPoolExecutor(2) as pool:
     fetched = list(pool.map(fetch, images))
+print(f"::notice title=Download::{N} fotos em {time.time() - start:.0f} s, 2 de cada vez")
 
 from ultralytics import YOLO  # noqa: E402
 
