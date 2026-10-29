@@ -1,44 +1,44 @@
 {
   "model": "material_cls.pt",
   "classes": {
-    "accuracy": 0.9393,
-    "macro_f1": 0.9289,
+    "accuracy": 0.8997,
+    "macro_f1": 0.8793,
     "n": 379,
     "per_class": {
       "cardboard": {
-        "precision": 0.9661,
-        "recall": 0.95,
-        "f1": 0.958,
+        "precision": 0.8667,
+        "recall": 0.8667,
+        "f1": 0.8667,
         "support": 60
       },
       "glass": {
-        "precision": 0.9487,
-        "recall": 0.9867,
-        "f1": 0.9673,
+        "precision": 0.8902,
+        "recall": 0.9733,
+        "f1": 0.9299,
         "support": 75
       },
       "metal": {
-        "precision": 0.9375,
+        "precision": 0.9524,
         "recall": 0.9677,
-        "f1": 0.9524,
+        "f1": 0.96,
         "support": 62
       },
       "paper": {
-        "precision": 0.9535,
-        "recall": 0.9213,
-        "f1": 0.9371,
+        "precision": 0.9512,
+        "recall": 0.8764,
+        "f1": 0.9123,
         "support": 89
       },
       "plastic": {
-        "precision": 0.9412,
-        "recall": 0.8889,
-        "f1": 0.9143,
+        "precision": 0.875,
+        "recall": 0.875,
+        "f1": 0.875,
         "support": 72
       },
       "trash": {
-        "precision": 0.7917,
-        "recall": 0.9048,
-        "f1": 0.8444,
+        "precision": 0.75,
+        "recall": 0.7143,
+        "f1": 0.7317,
         "support": 21
       }
     },
@@ -60,20 +60,20 @@
     ],
     "confusion_matrix": [
       [
-        57,
+        52,
+        2,
         0,
-        0,
+        2,
         3,
-        0,
-        0
+        1
       ],
       [
         0,
-        74,
+        73,
         0,
         0,
         1,
-        0
+        1
       ],
       [
         0,
@@ -84,64 +84,64 @@
         0
       ],
       [
-        2,
+        6,
         0,
         3,
-        82,
+        78,
+        1,
+        1
+      ],
+      [
+        1,
+        6,
         0,
+        0,
+        63,
         2
       ],
       [
-        0,
-        4,
-        1,
-        0,
-        64,
-        3
-      ],
-      [
-        0,
-        0,
-        0,
         1,
         1,
-        19
+        0,
+        2,
+        2,
+        15
       ]
     ]
   },
   "categories": {
-    "accuracy": 0.9525,
-    "macro_f1": 0.9316,
+    "accuracy": 0.9208,
+    "macro_f1": 0.889,
     "n": 379,
     "per_class": {
       "Plástico": {
-        "precision": 0.9412,
-        "recall": 0.8889,
-        "f1": 0.9143,
+        "precision": 0.875,
+        "recall": 0.875,
+        "f1": 0.875,
         "support": 72
       },
       "Papel": {
-        "precision": 0.9931,
-        "recall": 0.9664,
-        "f1": 0.9796,
+        "precision": 0.9718,
+        "recall": 0.9262,
+        "f1": 0.9485,
         "support": 149
       },
       "Metal": {
-        "precision": 0.9375,
+        "precision": 0.9524,
         "recall": 0.9677,
-        "f1": 0.9524,
+        "f1": 0.96,
         "support": 62
       },
       "Vidro": {
-        "precision": 0.9487,
-        "recall": 0.9867,
-        "f1": 0.9673,
+        "precision": 0.8902,
+        "recall": 0.9733,
+        "f1": 0.9299,
         "support": 75
       },
       "Orgânico/Rejeito": {
-        "precision": 0.7917,
-        "recall": 0.9048,
-        "f1": 0.8444,
+        "precision": 0.75,
+        "recall": 0.7143,
+        "f1": 0.7317,
         "support": 21
       }
     },
@@ -161,17 +161,17 @@
     ],
     "confusion_matrix": [
       [
-        64,
-        0,
+        63,
         1,
-        4,
-        3
+        0,
+        6,
+        2
       ],
       [
-        0,
-        144,
+        4,
+        138,
         3,
-        0,
+        2,
         2
       ],
       [
@@ -185,15 +185,15 @@
         1,
         0,
         0,
-        74,
-        0
+        73,
+        1
       ],
       [
-        1,
-        1,
+        2,
+        3,
         0,
-        0,
-        19
+        1,
+        15
       ]
     ]
   }

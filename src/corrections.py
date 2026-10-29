@@ -1,9 +1,13 @@
 """Correções do usuário e re-treino do classificador de material com elas.
 
 Quando o sistema erra (ou acerta) um objeto, o dashboard guarda o recorte com a categoria certa em
-``storage/corrections/<classe>/``. O re-treino ajusta o classificador em uso com o TrashNet + essas correções
-(repetidas, para pesarem) e só troca o modelo se o novo não piorar no teste do TrashNet nem nas correções
-separadas para validação. O modelo anterior fica guardado para voltar atrás.
+``storage/corrections/<classe>/``. O re-treino ajusta o classificador em uso com fotos de referência + essas
+correções (repetidas, para pesarem) e só troca o modelo se o novo não piorar nos testes de referência nem nas
+correções separadas para validação. O modelo anterior fica guardado para voltar atrás.
+
+As fotos de referência são uma amostra do dataset combinado TrashNet + TrashBox (``datasets/material``), se ele
+existir no computador, ou o TrashNet. Revisar também as fotos variadas do TrashBox evita que o modelo "esqueça"
+o que aprendeu com elas.
 """
 
 from __future__ import annotations
@@ -34,8 +38,9 @@ NOT_WASTE = "Não é resíduo"
 NOT_WASTE_DIR = "nao_residuo"  # guardado para um futuro treino do detector; o classificador não usa
 OPTIONS = list(CATEGORIES) + [NOT_WASTE]
 
-REPEAT = 5  # cada correção entra 5 vezes no treino: são poucas perto das ~1.800 fotos do TrashNet
-MAX_TEST_DROP = 0.02  # tolera até 2 pontos de queda no teste do TrashNet em troca de acertar as correções
+REPEAT = 5  # cada correção entra 5 vezes no treino: são poucas perto das ~1.800 fotos de referência
+MAX_TEST_DROP = 0.02  # tolera até 2 pontos de queda em cada teste de referência em troca de acertar as correções
+REPLAY_PER_CLASS = {"train": 300, "val": 60}  # amostra do dataset combinado: o re-treino continua em minutos
 MIN_CORRECTIONS = 5
 
 
@@ -183,6 +188,29 @@ def split_holdout(items: list[tuple[Path, str]]) -> tuple[list, list]:
     return [x for i, x in enumerate(items) if i % 5], [x for i, x in enumerate(items) if i % 5 == 0]
 
 
+def _reference(trashnet_dir: str | Path | None) -> tuple[Path, list[Path], bool]:
+    """(pasta com train/ e val/, testes que o modelo novo não pode piorar, se é o dataset combinado)."""
+    from src.train import DATASETS_DIR, prepare_trashnet
+
+    if trashnet_dir:
+        return Path(trashnet_dir), [Path(trashnet_dir) / "test"], False
+    mix = DATASETS_DIR / "material"
+    if (mix / "info.json").is_file() and (mix / "test_trashbox").is_dir():
+        return mix, [mix / "test_trashnet", mix / "test_trashbox"], True
+    trashnet = prepare_trashnet()
+    return trashnet, [trashnet / "test"], False
+
+
+def _sample(items: list[tuple[Path, str]], per_class: int, seed: int = 0) -> list[tuple[Path, str]]:
+    import random
+
+    rng, out = random.Random(seed), []
+    for cls in sorted({c for _, c in items}):
+        of_class = [x for x in items if x[1] == cls]
+        out += rng.sample(of_class, min(per_class, len(of_class)))
+    return out
+
+
 def retrain(
     store: CorrectionStore | None = None,
     epochs: int = 8,
@@ -190,29 +218,36 @@ def retrain(
     on_epoch=None,
     imgsz: int = 224,
     work_dir: str | Path | None = None,
-    lr0: float = 0.0005,
+    lr0: float = 0.0001,
     freeze: int | None = 8,
     **train_overrides,
 ) -> RetrainResult:
-    """Ajusta o classificador em uso com o TrashNet + as correções e troca o modelo só se não piorar.
+    """Ajusta o classificador em uso com as fotos de referência + as correções e troca o modelo só se não piorar.
 
     ``freeze=8`` congela as camadas de base (texturas e formas) e ajusta só as finais (a decisão do material).
     Sem isso, o modelo aprendia as correções mas "esquecia" parte do resto: com 14 correções de uma foto de
     pilha de lixo, o acerto no teste do TrashNet caía de 95,3% para 92,9%; congelado, foi para 95,8%.
+
+    ``lr0=0.0001``: o classificador atual sai do treino com uma taxa bem baixa. Com 15 correções de fotos que ele
+    errava, 0.0005 aprendia 12 delas mas derrubava o teste do TrashNet de 92,4% para 87,1% (e era recusado);
+    0.0001 aprendeu 10 e subiu o teste para 92,9%.
     """
     from src.evaluate import labeled_images
-    from src.train import DATASETS_DIR, prepare_trashnet, train_classifier
+    from src.train import DATASETS_DIR, train_classifier
 
     store = store or CorrectionStore()
     items = store.items()
     if len(items) < MIN_CORRECTIONS:
         raise ValueError(f"Faça pelo menos {MIN_CORRECTIONS} correções antes de treinar (há {len(items)}).")
-    trashnet = Path(trashnet_dir) if trashnet_dir else prepare_trashnet()
+    reference, test_dirs, combined = _reference(trashnet_dir)
     train_items, holdout = split_holdout(items)
 
     work = _fresh_work_dir(Path(work_dir) if work_dir else DATASETS_DIR / "retreino")
     for split in ("train", "val"):
-        for img, cls in labeled_images(trashnet / split):
+        base_items = labeled_images(reference / split)
+        if combined:
+            base_items = _sample(base_items, REPLAY_PER_CLASS[split])
+        for img, cls in base_items:
             _link(img, work / split / cls / img.name)
     for img, cls in train_items:
         for k in range(REPEAT):
@@ -229,13 +264,17 @@ def retrain(
         **train_overrides,
     )
 
-    test = labeled_images(trashnet / "test")
-    old_test, new_test = _category_accuracy(base, test), _category_accuracy(candidate, test)
+    # O primeiro teste é o do TrashNet (o número mostrado no dashboard); com o dataset combinado, o do TrashBox
+    # também não pode piorar
+    tests = [labeled_images(d) for d in test_dirs]
+    old_tests = [_category_accuracy(base, t) for t in tests]
+    new_tests = [_category_accuracy(candidate, t) for t in tests]
+    old_test, new_test = old_tests[0], new_tests[0]
     check = holdout or items  # sem validação separada, mostra pelo menos o acerto nas próprias correções
     old_corr, new_corr = _category_accuracy(base, check), _category_accuracy(candidate, check)
 
-    if new_test < old_test - MAX_TEST_DROP:
-        accepted, message = False, "O modelo novo piorou no teste do TrashNet; o atual foi mantido."
+    if any(new < old - MAX_TEST_DROP for old, new in zip(old_tests, new_tests)):
+        accepted, message = False, "O modelo novo piorou nas fotos de referência; o atual foi mantido."
     elif holdout and new_corr < old_corr:
         accepted, message = False, "O modelo novo não acertou mais as suas correções; o atual foi mantido."
     else:

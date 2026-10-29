@@ -1,6 +1,7 @@
 """Avaliação: mede o quanto o sistema acerta, para comparar versões antes de trocar o modelo em produção.
 
     python -m src.evaluate material                 # classificador de material no teste do TrashNet
+    python -m src.evaluate material --test datasets/material/test_trashbox --report material_trashbox
     python -m src.evaluate system                   # sistema inteiro: só COCO × COCO + material
     python -m src.evaluate detector --models yolov8n.pt yolov8s.pt   # detectores no coco128
 
@@ -117,19 +118,135 @@ def evaluate_material(model_path: str | Path = MATERIAL_MODEL, test_dir: str | P
 
 def evaluate_system(detector, test_dir: str | Path = TRASHNET_TEST, single_item: bool = True) -> dict:
     """Sistema inteiro, como a API decide: a categoria do resíduo mais confiante da foto (ou "nenhum")."""
-    from src.hardware_controller import choose_action
+    from src.detector import best_waste
 
     items = labeled_images(test_dir)
     truth, pred = [], []
     for path, cls in items:
-        action = choose_action(detector.detect(path, waste_only=True, single_item=single_item))
+        best = best_waste(detector.detect(path, waste_only=True, single_item=single_item))
         truth.append(category_from_name(cls).name)
-        pred.append(action.category if action else NONE)
+        pred.append(best.category if best else NONE)
     categories = [c for c in CATEGORIES if c in set(truth)]
     result = metrics(truth, pred, categories)
     result["recognized"] = round(sum(p != NONE for p in pred) / len(pred), 4)
     result["mode"] = getattr(detector, "description", type(detector).__name__)
     return result
+
+
+def scene_items(index: str | Path, split: str) -> list[tuple[Path, list[dict]]]:
+    """(foto, objetos) de um ``cenas.json`` (``src.train.prepare_taco_scenes``). Cada objeto tem ``box`` (x1, y1,
+    x2, y2) e ``category`` (None: material desconhecido)."""
+    index = Path(index)
+    scenes = json.loads(index.read_text(encoding="utf-8"))["scenes"]
+    return [(index.parent / s["file"], s["objects"]) for s in scenes if s["split"] == split]
+
+
+def iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def match_scene(preds: list[tuple[tuple, str, float]], objects: list[dict], image_area: float,
+                min_area: float = 0.0, iou_min: float = 0.5) -> dict:
+    """Casa as caixas do sistema (caixa, categoria, confiança) com os objetos da foto, das mais confiantes para as
+    menos, como no mAP: cada objeto vale para uma caixa só. Objetos sem categoria ou menores que ``min_area`` (fração
+    da foto) não contam, e a caixa que cair num deles é ignorada."""
+    def area(box):
+        return (box[2] - box[0]) * (box[3] - box[1])
+
+    ignored = [o["category"] is None or area(o["box"]) <= max(0.0, min_area * image_area) for o in objects]
+    taken = [False] * len(objects)
+    out = {"tp": 0, "fp": 0, "wrong": 0, "pairs": []}
+    for box, category, _ in sorted(preds, key=lambda p: -p[2]):
+        scores = [iou(box, o["box"]) if not taken[i] else 0.0 for i, o in enumerate(objects)]
+        best = int(np.argmax(scores)) if scores else -1
+        if best < 0 or scores[best] < iou_min:
+            out["fp"] += 1
+            continue
+        taken[best] = True
+        if ignored[best]:
+            continue
+        truth = objects[best]["category"]
+        out["pairs"].append((truth, category))
+        if category == truth:
+            out["tp"] += 1
+        else:
+            out["wrong"] += 1
+    out["objects"] = sum(not i for i in ignored)
+    out["truth_bins"] = {o["category"] for o, i in zip(objects, ignored) if not i}
+    out["pred_bins"] = {c for _, c, _ in preds}
+    return out
+
+
+def evaluate_scenes(detector, items: list[tuple[Path, list[dict]]], iou_min: float = 0.5) -> dict:
+    """Sistema inteiro em fotos com vários resíduos, no modo normal: um resíduo só conta como acerto se uma caixa
+    (IoU >= 0,5) o achou com a categoria certa.
+
+    - **precisão**: das caixas que o sistema mostrou, quantas acertaram o objeto e a categoria;
+    - **revocação**: dos resíduos das fotos, quantos o sistema achou com a categoria certa;
+    - **categoria dos achados**: dos resíduos que o sistema achou, em quantos acertou a lixeira;
+    - **lixeiras da foto**: as categorias que o sistema mostrou × as que a foto tem (precisão e revocação somadas
+      em todas as fotos).
+    """
+    import cv2
+
+    tp = fp = wrong = objects = 0
+    bins_tp = bins_pred = bins_truth = 0
+    pairs, boxes = [], 0
+    for path, gt in items:
+        image = cv2.imread(str(path))
+        dets = [d for d in detector.detect(image, waste_only=True) if d.category]
+        boxes += len(dets)
+        m = match_scene([(d.box, d.category, d.confidence) for d in dets], gt, image.shape[0] * image.shape[1],
+                        detector.min_area, iou_min)
+        tp, fp, wrong, objects = tp + m["tp"], fp + m["fp"], wrong + m["wrong"], objects + m["objects"]
+        pairs += m["pairs"]
+        bins_tp += len(m["truth_bins"] & m["pred_bins"])
+        bins_pred += len(m["pred_bins"])
+        bins_truth += len(m["truth_bins"])
+    shown = tp + fp + wrong
+    precision, recall = tp / max(1, shown), tp / max(1, objects)
+    bins_p, bins_r = bins_tp / max(1, bins_pred), bins_tp / max(1, bins_truth)
+    categories = [c for c in CATEGORIES if any(t == c for t, _ in pairs)]
+    found = metrics([t for t, _ in pairs], [p for _, p in pairs], categories) if pairs else None
+    return {
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(2 * precision * recall / (precision + recall) if precision + recall else 0.0, 4),
+        "found": round(len(pairs) / max(1, objects), 4),
+        "category_accuracy": found["accuracy"] if found else 0.0,
+        "bins_precision": round(bins_p, 4),
+        "bins_recall": round(bins_r, 4),
+        "bins_f1": round(2 * bins_p * bins_r / (bins_p + bins_r) if bins_p + bins_r else 0.0, 4),
+        "boxes_per_image": round(boxes / max(1, len(items)), 2),
+        "images": len(items),
+        "objects": objects,
+        "found_by_category": found,
+    }
+
+
+def evaluate_crops(texture, items: list[tuple[Path, list[dict]]], min_area: float = 0.0005) -> dict:
+    """Especialista de textura sozinho, nos recortes dos resíduos das cenas (a caixa certa, com a margem de sempre):
+    mede o material em fotos do mundo real, com rótulos, sujeira e fundo."""
+    import cv2
+
+    from src.material import crop
+
+    truth, pred = [], []
+    for path, gt in items:
+        image = cv2.imread(str(path))
+        area = image.shape[0] * image.shape[1]
+        objs = [o for o in gt if o["category"]
+                and (o["box"][2] - o["box"][0]) * (o["box"][3] - o["box"][1]) >= min_area * area]
+        crops = [(o, crop(image, o["box"])) for o in objs]
+        crops = [(o, c) for o, c in crops if c.size]
+        for (o, _), p in zip(crops, texture.predict([c for _, c in crops])):
+            truth.append(o["category"])
+            pred.append(max(p.probs, key=p.probs.get))
+    return metrics(truth, pred, [c for c in CATEGORIES if c in set(truth)])
 
 
 def evaluate_detector(model: str, data: str = "coco128.yaml", imgsz: int = 640) -> dict:
@@ -177,8 +294,10 @@ def main(argv: list[str] | None = None) -> None:
     mat = sub.add_parser("material")
     mat.add_argument("--model", default=str(MATERIAL_MODEL))
     mat.add_argument("--test", default=str(TRASHNET_TEST))
+    mat.add_argument("--report", default="material", help="nome dos arquivos em reports/")
     sysp = sub.add_parser("system")
     sysp.add_argument("--test", default=str(TRASHNET_TEST))
+    sysp.add_argument("--report", default="sistema", help="nome dos arquivos em reports/")
     sysp.add_argument("--detector", default=None, help="peso do detector (padrão: o mesmo do sistema)")
     det = sub.add_parser("detector")
     det.add_argument("--models", nargs="+", default=["yolov8n.pt", "yolov8s.pt"])
@@ -188,9 +307,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.what == "material":
         result = evaluate_material(args.model, args.test)
-        _save("material", result)
-        plot_confusion(result["classes"], "Classificador de material (TrashNet, teste)", REPORTS_DIR / "material_classes.png")
-        plot_confusion(result["categories"], "Classificador de material: categorias", REPORTS_DIR / "material_categorias.png")
+        _save(args.report, result)
+        where = Path(args.test).name
+        plot_confusion(result["classes"], f"Classificador de material ({where})", REPORTS_DIR / f"{args.report}_classes.png")
+        plot_confusion(result["categories"], f"Classificador de material: categorias ({where})",
+                       REPORTS_DIR / f"{args.report}_categorias.png")
         print(f"Classes:    acurácia {result['classes']['accuracy']:.1%}")
         print(f"Categorias: acurácia {result['categories']['accuracy']:.1%}")
         print(_per_class_table(result["classes"]))
@@ -201,10 +322,10 @@ def main(argv: list[str] | None = None) -> None:
         for name, material in (("so_coco", None), ("coco_material", "auto")):
             detector = Detector(args.detector, material_model=material)
             results[name] = evaluate_system(detector, args.test)
-            plot_confusion(results[name], f"Sistema ({detector.description})", REPORTS_DIR / f"sistema_{name}.png")
+            plot_confusion(results[name], f"Sistema ({detector.description})", REPORTS_DIR / f"{args.report}_{name}.png")
             r = results[name]
             print(f"{detector.description:28} acurácia {r['accuracy']:.1%} · reconheceu algo em {r['recognized']:.1%}")
-        _save("sistema", results)
+        _save(args.report, results)
     else:
         results = [evaluate_detector(m, args.data, s) for m in args.models for s in args.imgsz]
         _save("detectores", {"data": args.data, "results": results})

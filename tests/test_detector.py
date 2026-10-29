@@ -40,14 +40,13 @@ def test_garrafas_e_bananas_viram_plastico_e_organico(detector, coco_samples):
     by_label = {d.label: d.category for d in detections}
     assert by_label["bottle"] == "Plástico"
     assert by_label["banana"] == "Orgânico/Rejeito"
-    assert all(d.weight_g > 0 and d.color_hex and d.command for d in detections)
+    assert all(d.weight_g > 0 and d.color_hex for d in detections)
 
 
 def test_taca_vira_vidro(detector, coco_samples):
     detections = detector.detect(coco_samples["vinho"], waste_only=True)
     glass = [d for d in detections if d.label == "wine glass"]
     assert glass and glass[0].category == "Vidro"
-    assert glass[0].command == "V"
 
 
 def test_formato_das_deteccoes(detector, sample_image):

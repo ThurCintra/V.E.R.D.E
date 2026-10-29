@@ -1,37 +1,37 @@
 {
   "so_coco": {
-    "accuracy": 0.2005,
-    "macro_f1": 0.2399,
+    "accuracy": 0.153,
+    "macro_f1": 0.1781,
     "n": 379,
     "per_class": {
       "Plástico": {
-        "precision": 0.3793,
-        "recall": 0.1528,
-        "f1": 0.2178,
+        "precision": 0.2778,
+        "recall": 0.2778,
+        "f1": 0.2778,
         "support": 72
       },
       "Papel": {
-        "precision": 0.5,
-        "recall": 0.2617,
-        "f1": 0.3436,
+        "precision": 0.7353,
+        "recall": 0.1678,
+        "f1": 0.2732,
         "support": 149
       },
       "Metal": {
-        "precision": 0.3429,
-        "recall": 0.1935,
-        "f1": 0.2474,
+        "precision": 0.0909,
+        "recall": 0.0161,
+        "f1": 0.0274,
         "support": 62
       },
       "Vidro": {
-        "precision": 0.5,
-        "recall": 0.16,
-        "f1": 0.2424,
+        "precision": 0.45,
+        "recall": 0.12,
+        "f1": 0.1895,
         "support": 75
       },
       "Orgânico/Rejeito": {
-        "precision": 0.3333,
-        "recall": 0.0952,
-        "f1": 0.1481,
+        "precision": 0.1071,
+        "recall": 0.1429,
+        "f1": 0.1224,
         "support": 21
       }
     },
@@ -52,82 +52,82 @@
     ],
     "confusion_matrix": [
       [
-        11,
-        15,
-        9,
+        20,
         4,
-        1,
-        32
-      ],
-      [
-        2,
-        39,
-        6,
-        2,
-        3,
-        97
-      ],
-      [
-        4,
-        8,
-        12,
-        3,
         0,
-        35
-      ],
-      [
-        10,
-        11,
         6,
-        12,
-        0,
+        6,
         36
       ],
       [
-        2,
         5,
-        2,
+        25,
+        7,
         3,
-        2,
-        7
+        10,
+        99
+      ],
+      [
+        19,
+        1,
+        1,
+        1,
+        5,
+        35
+      ],
+      [
+        25,
+        4,
+        3,
+        9,
+        4,
+        30
+      ],
+      [
+        3,
+        0,
+        0,
+        1,
+        3,
+        14
       ]
     ],
-    "recognized": 0.4538,
-    "mode": "yoloe (OpenVINO)"
+    "recognized": 0.4354,
+    "mode": "coco"
   },
   "coco_material": {
-    "accuracy": 0.9393,
-    "macro_f1": 0.9253,
+    "accuracy": 0.9156,
+    "macro_f1": 0.888,
     "n": 379,
     "per_class": {
       "Plástico": {
-        "precision": 0.942,
-        "recall": 0.9028,
-        "f1": 0.922,
+        "precision": 0.8971,
+        "recall": 0.8472,
+        "f1": 0.8714,
         "support": 72
       },
       "Papel": {
-        "precision": 1.0,
-        "recall": 0.953,
-        "f1": 0.9759,
+        "precision": 0.9718,
+        "recall": 0.9262,
+        "f1": 0.9485,
         "support": 149
       },
       "Metal": {
-        "precision": 0.9508,
-        "recall": 0.9355,
-        "f1": 0.9431,
+        "precision": 0.9375,
+        "recall": 0.9677,
+        "f1": 0.9524,
         "support": 62
       },
       "Vidro": {
-        "precision": 0.9241,
+        "precision": 0.9012,
         "recall": 0.9733,
-        "f1": 0.9481,
+        "f1": 0.9359,
         "support": 75
       },
       "Orgânico/Rejeito": {
-        "precision": 0.8182,
-        "recall": 0.8571,
-        "f1": 0.8372,
+        "precision": 0.75,
+        "recall": 0.7143,
+        "f1": 0.7317,
         "support": 21
       }
     },
@@ -148,47 +148,47 @@
     ],
     "confusion_matrix": [
       [
-        65,
-        0,
+        61,
         1,
-        3,
+        1,
+        6,
         2,
         1
       ],
       [
-        0,
-        142,
         2,
+        138,
+        3,
         1,
         2,
-        2
+        3
       ],
       [
-        1,
+        2,
         0,
-        58,
-        1,
+        60,
         0,
-        2
+        0,
+        0
       ],
       [
         1,
         0,
         0,
         73,
-        0,
-        1
+        1,
+        0
       ],
       [
         2,
-        0,
+        3,
         0,
         1,
-        18,
+        15,
         0
       ]
     ],
-    "recognized": 0.9842,
-    "mode": "yoloe (OpenVINO) + textura (local)"
+    "recognized": 0.9894,
+    "mode": "coco + textura (local)"
   }
 }

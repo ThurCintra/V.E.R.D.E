@@ -1,9 +1,10 @@
 """Motor de inferência híbrido de 3 estágios para resíduos recicláveis.
 
-1. **Detecção espacial** (rápida): YOLOE com vocabulário de resíduos (``src/open_vocab.py``; o modelo pronto vem
-   no repositório) ou, se pedido, YOLO-World; pré-processamento CLAHE opcional (``src/preprocess.py``), filtro de
-   tamanho (ignora o que ocupa mais de 70% da imagem, como paredes e o próprio corpo) e descarte de pessoas. Se o
-   vocabulário não puder ser carregado, o detector cai para o outro e, por fim, para o YOLOv8 do COCO.
+1. **Detecção espacial** (rápida): o YOLOv8 do COCO (garrafas, copos, comida…) e, onde ele não achou nada, o
+   detector de uma classe só treinado no TACO (latas, embalagens, bitucas, caixas), com filtro de tamanho (ignora o
+   que ocupa mais de 70% da imagem, como paredes e o próprio corpo) e caixas repetidas da mesma lixeira juntas.
+   Opcionais: YOLO-World ou YOLOE com vocabulário de resíduos (``src/open_vocab.py``; o YOLOE roda no OpenVINO,
+   exportado em ``models/``) e pré-processamento CLAHE + filtro bilateral (``src/preprocess.py``).
 2. **Especialista de textura** (``src/material_classifier.py``): classifica o recorte de cada objeto; o resultado
    é combinado com o detector (40% forma, 60% textura).
 3. **Estabilização temporal** (vídeo, ``track``): o ByteTrack (pacote ``trackers``, sobre o ``supervision``) dá
@@ -12,8 +13,10 @@
 
 Modos de operação: ``rapido`` (só o estágio 1), ``alta`` (1 + 2) e ``ultra`` (1 + 2 + Deep Scan).
 
-Configuração por ambiente (``Detector.from_env``): ``WASTE_MODE``, ``WASTE_DETECTOR`` (``yoloe``, o padrão,
-``yolo-world`` ou ``coco``), ``WASTE_MODEL`` (um peso específico), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_TTA=1``,
+Configuração por ambiente (``Detector.from_env``, que também lê o ``.env``): ``WASTE_MODE``, ``WASTE_DETECTOR``
+(``coco``, ``yolo-world`` ou ``yoloe``), ``WASTE_MODEL`` (um peso específico), ``WASTE_EXTRA_MODEL`` (o segundo
+detector; ``off`` desliga), ``WASTE_IMGSZ``, ``DETECTOR_CONF``, ``WASTE_MERGE`` (``off`` não junta as repetidas),
+``WASTE_TTA=1``, ``WASTE_OPENVINO=0`` (usa o PyTorch),
 ``WASTE_PREPROCESS=1`` (liga o CLAHE), ``WASTE_MATERIAL_MODEL`` (``off`` desliga o estágio 2), ``WASTE_HF_MODEL`` e
 ``WASTE_MATERIAL_CONF``.
 """
@@ -43,7 +46,7 @@ from src.material_classifier import (
     top,
 )
 from src.open_vocab import IGNORED_VOCABULARY, VOCAB_CATEGORY, is_open_vocab, load_open_vocab
-from src.paths import CUSTOM_MODEL, DEFAULT_MODEL
+from src.paths import CUSTOM_MODEL, DEFAULT_MODEL, TACO_DETECTOR
 from src.preprocess import SceneCalibration, enhance
 from src.recycling import CATEGORIES, COCO_RULES, DEFAULT_WEIGHT_G, METAL, category_from_name
 from src.temporal import TemporalVoter
@@ -52,6 +55,13 @@ from src.weights import resolve
 log = logging.getLogger(__name__)
 
 MODES = {"rapido": "Rápido", "alta": "Alta precisão", "ultra": "Ultra precisão"}
+# Escolhidos nas cenas de validação do TACO: confiança mínima das caixas e sobreposição para juntar as repetidas
+DEFAULT_CONF = 0.55
+DEFAULT_MERGE = 0.7
+# Detector de uma classe só (treinado no TACO: acha o lixo, e a textura decide o material). Antes da textura, o voto
+# do detector é a frequência de cada categoria entre os resíduos do TACO.
+AGNOSTIC_LABEL = "residuo"
+AGNOSTIC_PRIOR = {"Plástico": 0.528, "Papel": 0.107, "Metal": 0.129, "Vidro": 0.06, "Orgânico/Rejeito": 0.177}
 DEEP_SCAN_RANGE = (0.35, 0.60)  # confiança "duvidosa" que dispara o Deep Scan automático
 BACKGROUND_MIN_CHANGE = 0.15  # com o fundo calibrado, caixas com menos de 15% de mudança são o próprio fundo
 TEXTURE_EVERY = 5  # no vídeo, o especialista de textura revê cada objeto a cada 5 quadros
@@ -74,10 +84,6 @@ class Detection:
     def color_hex(self) -> str | None:
         return CATEGORIES[self.category].hex if self.category else None
 
-    @property
-    def command(self) -> str | None:
-        return CATEGORIES[self.category].command if self.category else None
-
     def top_probs(self, n: int = 3) -> list[tuple[str, float]]:
         if not self.probs:
             return [(self.category, 1.0)] if self.category else []
@@ -92,7 +98,6 @@ class Detection:
             "box": {"x1": round(x1, 1), "y1": round(y1, 1), "x2": round(x2, 1), "y2": round(y2, 1)},
             "color": self.color_hex,
             "weight_g": self.weight_g,
-            "command": self.command,
             "material": (
                 {"label": self.material, "confidence": round(self.material_confidence, 4)} if self.material else None
             ),
@@ -104,6 +109,38 @@ class Detection:
                 if self.scan else None
             ),
         }
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - ix * iy
+    return ix * iy / union if union > 0 else 0.0
+
+
+def _containment(a, b) -> float:
+    """Quanto da menor das duas caixas está dentro da outra (1: uma está toda dentro da outra)."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return ix * iy / smaller if smaller > 0 else 0.0
+
+
+def merge_duplicates(detections: list[Detection], overlap: float) -> list[Detection]:
+    """Uma caixa da mesma categoria quase toda dentro de outra é o mesmo resíduo contado duas vezes (a banana e o
+    sanduíche dela, a garrafa e o rótulo): fica a mais confiante."""
+    kept: list[Detection] = []
+    for d in sorted(detections, key=lambda d: -d.confidence):
+        if d.category and any(k.category == d.category and _containment(d.box, k.box) >= overlap for k in kept):
+            continue
+        kept.append(d)
+    return [d for d in detections if any(d is k for k in kept)]
+
+
+def best_waste(detections) -> Detection | None:
+    """O resíduo detectado com maior confiança: a lixeira que vale para a foto inteira."""
+    waste = [d for d in detections if d.category]
+    return max(waste, key=lambda d: d.confidence) if waste else None
 
 
 def default_model_path() -> Path:
@@ -158,20 +195,27 @@ class Detector:
         imgsz: int = 640,
         augment: bool = False,
         material_model: str | Path | None = "auto",
-        material_conf: float = 0.6,
+        material_conf: float = 0.5,
         mode: str = "alta",
         detector_kind: str = "yoloe",
         preprocess: bool = False,
         min_area: float = 0.0005,
         max_area: float = 0.70,
         deep_scanner="auto",
+        extra_model: str | Path | None = None,
     ):
         """``material_model``: ``"auto"`` (Hugging Face se configurado, senão o classificador local), um caminho
-        de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima para, no modo de
-        1 item por foto, a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
-        ocupar."""
+        de classificador local, ou ``None`` (sem estágio 2). ``material_conf``: certeza mínima na categoria para,
+        no modo de 1 item por foto (ou no plano B), a foto inteira decidir. ``min_area``/``max_area``: fração da imagem que uma caixa pode
+        ocupar. ``extra_model``: um segundo detector (o de uma classe só, treinado no TACO), cujas caixas entram
+        quando o primeiro não achou nada no mesmo lugar."""
         model, self.model_path, self.fallback_note = _load_detector(model_path, detector_kind)
         self.model, self.accelerator = _accelerate(model, self.model_path)
+        self.extra_model = None
+        if extra_model:
+            from ultralytics import YOLO
+
+            self.extra_model = YOLO(str(resolve(extra_model)))
         names = self.model.names
         self.is_coco = len(names) == 80 and names[0] == "person"
         self.is_open_vocab = is_open_vocab(names)
@@ -183,6 +227,9 @@ class Detector:
         self.material_conf = material_conf
         self.calibration: SceneCalibration | None = None
         self.deep_scan_all = False  # Deep Scan em todo objeto (não só nos duvidosos parados no centro)
+        self.ignore_labels: frozenset[str] = frozenset()  # classes do detector que nunca viram resíduo
+        self.merge_overlap: float | None = None  # junta caixas da mesma categoria com essa sobreposição (None: não)
+        self.agnostic_prior = dict(AGNOSTIC_PRIOR)  # voto do detector de uma classe só, antes da textura
 
         if material_model == "auto":
             self.texture = load_texture_expert(device)
@@ -197,21 +244,31 @@ class Detector:
 
     @classmethod
     def from_env(cls) -> "Detector":
+        """O padrão é o que mais acertou nas cenas de validação do TACO (veja "Cenas reais" no README): o COCO, o
+        detector de uma classe só treinado no TACO onde o COCO não achou nada, caixas com pelo menos 55% de
+        confiança e as repetidas da mesma lixeira juntas."""
         from src.deep_scan import load_env
 
         load_env()  # WASTE_DETECTOR, WASTE_HF_MODEL etc. também valem quando escritos no .env
         material = os.environ.get("WASTE_MATERIAL_MODEL", "auto")
-        return cls(
+        extra = os.environ.get("WASTE_EXTRA_MODEL", str(TACO_DETECTOR) if TACO_DETECTOR.is_file() else "")
+        detector = cls(
             model_path=os.environ.get("WASTE_MODEL") or None,
-            conf=float(os.environ.get("DETECTOR_CONF", "0.25")),
+            conf=float(os.environ.get("DETECTOR_CONF", str(DEFAULT_CONF))),
             imgsz=int(os.environ.get("WASTE_IMGSZ", "640")),
             augment=os.environ.get("WASTE_TTA", "0") == "1",
             material_model=None if material.lower() in ("off", "0", "none") else material,
-            material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.6")),
+            material_conf=float(os.environ.get("WASTE_MATERIAL_CONF", "0.5")),
             mode=os.environ.get("WASTE_MODE", "alta"),
-            detector_kind=os.environ.get("WASTE_DETECTOR", "yoloe"),
+            # O COCO no lugar do YOLO-World e do YOLOE: nas cenas do TACO, os dois acertaram menos e precisam do
+            # CLIP para montar o vocabulário (~600 MB a mais de memória, além do que os servidores gratuitos garantem)
+            detector_kind=os.environ.get("WASTE_DETECTOR", "coco"),
             preprocess=os.environ.get("WASTE_PREPROCESS", "0") == "1",
+            extra_model=None if extra.lower() in ("", "off", "0", "none") else extra,
         )
+        merge = os.environ.get("WASTE_MERGE", str(DEFAULT_MERGE))
+        detector.merge_overlap = None if merge.lower() in ("off", "0", "none") else float(merge)
+        return detector
 
     # ------------------------------------------------------------ informações
     @property
@@ -226,8 +283,10 @@ class Detector:
     @property
     def backend(self) -> str:
         if self.is_open_vocab:
-            return "yoloe" if "yoloe" in self.model_path.name else "yolo-world"
-        return "coco" if self.is_coco else "customizado"
+            name = "yoloe" if "yoloe" in self.model_path.name else "yolo-world"
+        else:
+            name = "coco" if self.is_coco else "customizado"
+        return f"{name} + {AGNOSTIC_LABEL}s" if self.extra_model is not None else name
 
     @property
     def texture_name(self) -> str | None:
@@ -255,6 +314,9 @@ class Detector:
 
     # ------------------------------------------------------------ estágio 1
     def _shape_category(self, label: str) -> tuple[str | None, float]:
+        if label == AGNOSTIC_LABEL:  # antes do vocabulário aberto: o segundo detector também completa o YOLO-World
+            category = max(self.agnostic_prior, key=self.agnostic_prior.get)
+            return category, DEFAULT_WEIGHT_G[category]
         if self.is_open_vocab:
             category = VOCAB_CATEGORY.get(label)
             return category, DEFAULT_WEIGHT_G[category] if category else 0.0
@@ -289,33 +351,48 @@ class Detector:
         h, w = image.shape[:2]
         clip = self.calibration.clip_limit if self.calibration else 2.0
         source = enhance(image, clip) if self.preprocess else image
-        result = self.model.predict(
-            source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False,
-            # O YOLOE já faz isso no PyTorch (uma caixa, um rótulo); pelo OpenVINO precisa ser pedido
-            agnostic_nms=self.is_open_vocab,
-        )[0]
-        names = result.names
         detections = []
-        for xyxy, p, c in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(), result.boxes.cls.tolist()):
-            label = names[int(c)]
-            if self.is_open_vocab and label in IGNORED_VOCABULARY:
-                continue  # estão no vocabulário só para o detector não confundir pessoas e mãos com resíduo
-            category, weight = self._shape_category(label)
-            if waste_only and category is None:
+        for model in (self.model, self.extra_model):
+            if model is None:
                 continue
-            box = tuple(float(v) for v in xyxy)
-            area = (box[2] - box[0]) * (box[3] - box[1]) / (w * h)
-            if category and not single_item and not self.min_area <= area <= self.max_area:
-                continue  # resíduo "do tamanho da imagem" é parede, mesa ou o próprio corpo; minúsculo é ruído
-            if self.calibration and self.calibration.foreground_ratio(image, box) < BACKGROUND_MIN_CHANGE:
-                continue  # é o fundo calibrado
-            probs = shape_vote(category, float(p)) if category else None
-            detections.append(Detection(label, float(p), box, category, weight, probs=probs))
+            result = model.predict(
+                source, conf=self.conf, imgsz=self.imgsz, augment=self.augment, device=self.device, verbose=False,
+                # O YOLOE já faz isso no PyTorch (uma caixa, um rótulo); pelo OpenVINO precisa ser pedido
+                agnostic_nms=self.is_open_vocab and model is self.model,
+            )[0]
+            found = [d for d in detections if d.category]
+            for xyxy, p, c in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(), result.boxes.cls.tolist()):
+                label = result.names[int(c)]
+                if self.is_open_vocab and label in IGNORED_VOCABULARY:
+                    continue  # estão no vocabulário só para o detector não confundir pessoas e mãos com resíduo
+                if label in self.ignore_labels:
+                    continue
+                category, weight = self._shape_category(label)
+                if waste_only and category is None:
+                    continue
+                box = tuple(float(v) for v in xyxy)
+                area = (box[2] - box[0]) * (box[3] - box[1]) / (w * h)
+                if category and not single_item and not self.min_area <= area <= self.max_area:
+                    continue  # resíduo "do tamanho da imagem" é parede, mesa ou o próprio corpo; minúsculo é ruído
+                if self.calibration and self.calibration.foreground_ratio(image, box) < BACKGROUND_MIN_CHANGE:
+                    continue  # é o fundo calibrado
+                if model is self.extra_model and any(_iou(box, d.box) >= 0.5 for d in found):
+                    continue  # o primeiro detector já achou esse objeto, com um nome que diz mais (banana, garrafa)
+                if label == AGNOSTIC_LABEL:
+                    probs = dict(self.agnostic_prior)
+                else:
+                    probs = shape_vote(category, float(p)) if category else None
+                detections.append(Detection(label, float(p), box, category, weight, probs=probs))
 
-        if not texture:
-            return detections  # o vídeo aplica a textura por trilha (_track)
+        if not texture:  # o vídeo aplica a textura por trilha (_track)
+            if self.merge_overlap is not None:
+                detections = merge_duplicates(detections, self.merge_overlap)
+            return detections
         if self.texture and self.mode != "rapido":
             detections = self._ensemble(image, detections)
+        if self.merge_overlap is not None and not single_item:
+            detections = merge_duplicates(detections, self.merge_overlap)
+        if self.texture and self.mode != "rapido":
             if single_item:
                 detections = self._single_item(image, detections)
             elif whole_image_fallback and not any(d.category for d in detections):
@@ -338,7 +415,9 @@ class Detector:
         return detections
 
     def _refinable(self, det: Detection) -> bool:
-        return bool(det.category) and (not self.is_coco or det.label in REFINABLE_LABELS)
+        return bool(det.category) and (
+            not self.is_coco or det.label in REFINABLE_LABELS or det.label == AGNOSTIC_LABEL
+        )
 
     def _with_texture(self, det: Detection, pred) -> Detection:
         mixed = ensemble(det.probs, pred.probs, *self.weights)
@@ -352,22 +431,24 @@ class Detector:
 
         No teste do TrashNet, deixar o detector decidir errava 16% das fotos: o COCO "vê" papelão como celular e
         coisas alaranjadas como banana. Se o especialista não tiver certeza, fica o que o detector achou.
+
+        A certeza que conta é a da categoria, não a da classe: papelão 45% + papel 40% é Papel com 85%.
         """
         (pred,) = self.texture.predict([image])
-        if pred.confidence < self.material_conf:
+        category, certainty = top(pred.probs)
+        if certainty < self.material_conf:
             return detections
         waste = [d for d in detections if d.category]
         others = [d for d in detections if not d.category]
         if waste:
             best = max(waste, key=lambda d: d.confidence)
-            weight = best.weight_g if best.category == top(pred.probs)[0] else DEFAULT_WEIGHT_G[top(pred.probs)[0]]
+            weight = best.weight_g if best.category == category else DEFAULT_WEIGHT_G[category]
             item = replace(
-                best, category=top(pred.probs)[0], weight_g=weight, material=pred.label,
+                best, category=category, weight_g=weight, material=pred.label,
                 material_confidence=pred.confidence, probs=pred.probs,
             )
         else:
             h, w = image.shape[:2]
-            category = top(pred.probs)[0]
             item = Detection(
                 pred.label, pred.confidence, (0.0, 0.0, float(w), float(h)), category,
                 DEFAULT_WEIGHT_G[category], pred.label, pred.confidence, pred.probs,

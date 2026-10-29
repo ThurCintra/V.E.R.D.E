@@ -8,6 +8,7 @@ import cv2
 import streamlit as st
 
 import ui
+from src import paths
 from src.detector import load_image
 from src.live import LiveSession
 from src.paths import DATA_DIR
@@ -17,6 +18,8 @@ from src.recycling import CATEGORIES, label_pt
 EXAMPLE = DATA_DIR / "mesa_garrafas_banana.jpg"
 DISPLAY_FPS = 20  # a tela da câmera contínua; a análise roda no ritmo dela, em paralelo
 SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
+if paths.PUBLIC:  # a câmera contínua é a do computador que roda o sistema: no site, a do servidor (que não tem)
+    SOURCES = SOURCES[:2]
 
 ui.hero("Analisar resíduos", "Envie ou tire uma foto: o V.E.R.D.E. mostra em qual lixeira vai cada item.")
 cfg = ui.settings()
@@ -38,9 +41,13 @@ def empty_state() -> None:
         [
             ("Envie ou tire uma foto", "De um objeto ou de vários. Quanto mais perto e com mais luz, melhor."),
             ("Veja a lixeira certa", "Cada item ganha um número e a cor da lixeira onde deve ir."),
-            ("Errou? Toque na certa", "Sua correção fica guardada e ensina o sistema a acertar mais."),
+            ("Errou? Toque na certa", "A foto mostra a lixeira certa."
+             if paths.PUBLIC else "Sua correção fica guardada e ensina o sistema a acertar mais."),
         ]
     )
+    if paths.PUBLIC:
+        st.caption(f"Versão online de demonstração. A câmera contínua, a calibração do fundo e o re-treino com as "
+                   f"suas correções ficam no [aplicativo para Windows]({paths.DESKTOP_APP_URL}).")
     st.write("")
     st.markdown("**As 5 lixeiras da coleta seletiva**")
     ui.legend()
@@ -60,8 +67,7 @@ def analyze_video(data: bytes, name: str) -> None:
         cap = cv2.VideoCapture(tmp.name)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         cap.release()
-        controller = ui.get_controller() if cfg["comportas"] else None
-        pipeline = WastePipeline(ui.detector(), db=ui.db() if save else None, controller=controller, source="video")
+        pipeline = WastePipeline(ui.detector(), db=ui.db() if save else None, source="video")
         progress, frame_slot = st.progress(0.0, "Analisando..."), st.empty()
         for result in pipeline.process_video(tmp.name, every_n=every_n):
             progress.progress(min(1.0, (result.index + 1) * every_n / total), "Analisando...")
@@ -164,8 +170,7 @@ else:
     frame_slot = video_col.empty()
     counts_slot, items_slot = list_col.empty(), list_col.empty()
     if running:
-        controller = ui.get_controller() if cfg["comportas"] else None
-        pipeline = WastePipeline(ui.detector(), db=ui.db(), controller=controller, source="ao-vivo", review=ui.review())
+        pipeline = WastePipeline(ui.detector(), db=ui.db(), source="ao-vivo", review=ui.review())
         old = st.session_state.pop("sessao_ao_vivo", None)
         if old is not None:  # de uma execução anterior da página que não terminou direito
             old.stop()

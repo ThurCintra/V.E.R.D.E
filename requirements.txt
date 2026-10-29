@@ -20,8 +20,9 @@ python-multipart>=0.0.9
 streamlit>=1.40
 plotly>=5.24
 pandas>=2.2
+tzdata>=2024.1 ; sys_platform == "win32"   # fusos horários do zoneinfo no Windows
 fpdf2>=2.8
 
-# Hardware (lixeira/esteira)
-pyserial>=3.5
-paho-mqtt>=2.1
+# Testes
+pytest>=8
+httpx2>=2.16
