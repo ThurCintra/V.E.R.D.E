@@ -266,6 +266,21 @@ o acerto nesses objetos foi de 6/14 para 14/14, as 3 correções separadas para 
 teste do TrashNet subiu de 95,2% para 95,8%. Sem congelar as camadas, o mesmo treino derrubava o teste do TrashNet
 para 92,9% e era recusado.
 
+## Treino grande do classificador (na CPU, algumas horas)
+
+O re-treino acima só ajusta as camadas finais com as suas correções. Para o classificador acertar mais em geral,
+`python -m src.big_train` treina um novo do zero:
+
+- `yolov8s-cls` (5 M de parâmetros) no lugar do `yolov8n-cls` (1,4 M);
+- TrashNet + [RealWaste](https://archive.ics.uci.edu/dataset/908/realwaste) (4.752 fotos de lixo real, num aterro;
+  CC BY 4.0, 657 MB, baixado na primeira vez) + as suas correções. As 9 classes do RealWaste viram as 6 do TrashNet;
+- até 40 épocas, parando antes se a validação não melhorar em 10.
+
+No Ryzen 5 9600X, cada época leva ~7,5 min (cerca de 5 h no total). O modelo novo só entra em uso se não cair mais de
+1 ponto no teste do TrashNet, no do RealWaste nem nas correções separadas, e se melhorar na média. O resultado fica
+em `reports/treino_grande.json`, e o anterior fica guardado. Se o PC desligar no meio, `--continuar` retoma.
+O modelo maior deixa o estágio 2 um pouco mais lento por objeto.
+
 ## Melhorando com os seus próprios dados
 
 O que mais melhora o sistema são fotos da sua própria câmera, com a sua luz e o seu fundo. O V.E.R.D.E. já
