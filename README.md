@@ -113,9 +113,7 @@ precisa, com o PyTorch sem CUDA, bem menor) e o `packages.txt`. Depois, cada pus
 
 No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (várias pessoas no mesmo servidor):
 
-- detector COCO: o YOLO-World precisaria de ~600 MB a mais de memória para montar o vocabulário, e nos testes o COCO
-  acerta quase o mesmo que o YOLOE: no máximo 0,2 ponto a menos no modo de 1 objeto por foto e cerca de 1 ponto a
-  menos no normal (veja *Resultados medidos*);
+- os mesmos modelos do aplicativo (COCO + detector do TACO + classificador de textura), que cabem no plano gratuito;
 - sem **Câmera contínua**, que seria a câmera do servidor: use **Tirar foto**, com a câmera do celular ou do
   computador de quem está acessando;
 - sem calibração do fundo, re-treino e casos duvidosos (eles mudariam o sistema de todos, ou guardariam fotos dos
@@ -125,8 +123,9 @@ No Streamlit Cloud, o V.E.R.D.E. entra sozinho no **modo site público** (vária
 Limites do plano gratuito: o app dorme depois de 12 horas sem visitas (acordar leva cerca de 1 minuto) e tem de 690 MB
 (garantidos) a 2,7 GB de memória, segundo a documentação do Streamlit. O site usa de 815 a 860 MB no pico, ao analisar
 uma foto (com o PyTorch do PyPI, que traz o CUDA, eram 1,3 GB). O workflow `.github/workflows/site.yml` simula o
-Streamlit Cloud a cada mudança: instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador, mede a
-memória e roda o teste do TrashNet com o sistema do site, que precisa dar o mesmo acerto do relatório.
+Streamlit Cloud a cada mudança: instala só o `app/requirements.txt`, analisa a foto de exemplo num navegador (ela
+precisa dar os 3 itens: caixa de leite em Papel, pote em Plástico e banana em Orgânico), mede a memória e roda o
+teste do TrashNet com o sistema do site, que precisa dar o mesmo acerto do relatório.
 
 A API REST não roda no Streamlit Cloud. Para o sistema inteiro online (dashboard + API), é preciso uma hospedagem com
 Docker, como um Space do Hugging Face (que passou a exigir o plano PRO para Docker) ou um servidor próprio com o
@@ -167,10 +166,10 @@ streamlit run app/dashboard.py         # dashboard: http://localhost:8501
 
 ```
 foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista de textura ──► 3. Estabilização ──► lixeira
-               YOLO-World + vocabulário      recorte de cada objeto         ByteTrack (id)
-               de resíduos, CLAHE, filtro    ViT do Hugging Face ou         EMA de 12 quadros
-               de tamanho, sem pessoas       YOLO11-cls (TrashNet, TrashBox Deep Scan (Gemini
-                                             e recortes do TACO)            ou análise local)
+               COCO + detector do TACO       recorte de cada objeto         ByteTrack (id)
+               (onde o COCO não achou),      ViT do Hugging Face ou         EMA de 12 quadros
+               filtro de tamanho, caixas     YOLO11-cls (TrashNet, TrashBox Deep Scan (Gemini
+               repetidas juntas              e recortes do TACO)            ou análise local)
                                              40% forma + 60% textura
 ```
 
@@ -180,11 +179,14 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
 | 🎯 Alta precisão (padrão) | 1 + 2 | uso geral |
 | 🔬 Ultra precisão | 1 + 2 + Deep Scan | quando errar custa caro; objetos duvidosos ganham segunda análise com justificativa |
 
-- **Estágio 1** (`src/open_vocab.py`, `src/preprocess.py`): o YOLO-World procura ~50 descrições de resíduos
-  ("aluminum can", "milk carton", "bottle cap"...), cada uma ligada a uma lixeira. Antes, a imagem passa por CLAHE
-  no espaço LAB e por um filtro bilateral (reflexos e sombras). Caixas com mais de 70% da imagem (parede, mesa, o
-  corpo) e pessoas/mãos são descartadas. **Zerar fundo** no painel guarda a cena vazia: o que for igual a ela é
-  ignorado, e o realce se ajusta à luz.
+- **Estágio 1** (`src/detector.py`): o YOLOv8 do COCO acha garrafas, copos, comida e talheres, e o detector de uma
+  classe só treinado no TACO (`models/residuos_taco.pt`) acrescenta o que o COCO não conhece (latas, embalagens,
+  tampas, bitucas, caixas), só onde o COCO não achou nada. Ficam as caixas com pelo menos 55% de confiança; duas
+  caixas da mesma lixeira com uma quase toda dentro da outra (a tampa e a garrafa, a banana e o sanduíche) viram um
+  item só. Caixas com mais de 70% da imagem (parede, mesa, o corpo) e pessoas são descartadas. **Zerar fundo** no
+  painel guarda a cena vazia: o que for igual a ela é ignorado. Opcionais (`WASTE_DETECTOR`): o YOLO-World ou o YOLOE
+  com ~50 descrições de resíduos (`src/open_vocab.py`), que acertaram menos nas cenas do TACO, e o realce CLAHE
+  (`src/preprocess.py`).
 - **Estágio 2** (`src/material_classifier.py`): cada recorte passa por um classificador de textura. Com
   `WASTE_HF_MODEL` (um modelo de classificação de resíduos do Hugging Face) usa o `transformers`; sem ele, ou se
   o modelo não puder ser baixado, usa o YOLO11-cls que vem no repositório, treinado no TrashNet, no TrashBox e em
@@ -195,10 +197,11 @@ foto/quadro ─► 1. Detecção espacial ──────► 2. Especialista 
   análise local de 8 variações do recorte. A resposta vem com uma justificativa ("Garrafa PET amassada - Plástico
   reciclável").
 
-**Primeira execução:** o vocabulário do YOLO-World precisa do CLIP (~340 MB, baixado uma vez; depois o modelo com o
-vocabulário fica salvo em `models/verde_yoloworld.pt` e roda offline). Rode `iniciar verificar` para baixar e
-conferir tudo. Planos B automáticos: sem YOLO-World → YOLOE (baixa o MobileCLIP, ~600 MB) → YOLOv8 do COCO; sem
-Hugging Face → classificador local; sem Gemini → análise local.
+**Primeira execução:** o YOLOv8 do COCO é baixado uma vez (22 MB); o detector do TACO e o classificador vêm no
+repositório. Com `WASTE_DETECTOR=yolo-world`, o vocabulário precisa do CLIP (~340 MB, baixado uma vez; depois o
+modelo com o vocabulário fica salvo em `models/verde_yoloworld.pt` e roda offline). Rode `iniciar verificar` para
+baixar e conferir tudo. Planos B automáticos: sem YOLO-World → YOLOE (baixa o MobileCLIP, ~600 MB) → YOLOv8 do COCO;
+sem Hugging Face → classificador local; sem Gemini → análise local.
 
 ### O que cada estágio rende (medido)
 
@@ -286,7 +289,8 @@ Três testes com fotos que nenhum modelo viu no treino (`python -m src.evaluate 
 | ------------------------------------------ | ------------------ | ---------------- | ------------------ | ---------------- |
 | COCO + `yolov8n-cls` (só TrashNet)         | 93,7%              | 84,4%            | 39,3%              | 39,3%            |
 | COCO + `yolo11s-cls` (TrashNet + TrashBox) | 92,3%              | 84,2%            | 89,6%              | 77,1%            |
-| **COCO + classificador atual**             | 91,6%              | 82,3%            | 89,5%              | 75,9%            |
+| COCO + classificador atual                 | 91,6%              | 82,3%            | 89,5%              | 75,9%            |
+| **Atual: COCO + detector do TACO + classificador atual** | 91,6% | 81,0%            | 89,6%              | 69,7%            |
 | YOLOE + `yolov8n-cls` (só TrashNet)        | 93,9%              | 89,5%            | 38,9%              | 37,0%            |
 | YOLOE + `yolo11s-cls` (TrashNet + TrashBox)| 92,3%              | 85,5%            | 89,8%              | 78,2%            |
 | **YOLOE + classificador atual**            | 91,8%              | 86,3%            | 89,6%              | 76,6%            |
@@ -302,8 +306,10 @@ visto como papel (caixas de remédio, máscaras) e vidro transparente visto como
   repete no treino 116 das suas próprias fotos de teste. Treinar sem limpar faria o teste "colar". Antes do treino,
   `src/dedup.py` tira do treino as 642 fotos que repetem uma da validação ou do teste, e os testes ficam intactos.
 - **Modo normal × 1 objeto:** nas fotos de um objeto só, quando o detector acha algo, ele costuma escolher uma parte
-  (o rótulo, a tampa) ou um objeto do fundo, e a textura do recorte acerta menos que a da foto inteira. Com um
-  resíduo por foto, ligue **Só um objeto por foto**.
+  (o rótulo, a tampa) ou um objeto do fundo, e a textura do recorte acerta menos que a da foto inteira. Com o
+  detector do TACO isso acontece mais (ele acha lixo em quase toda foto): o modo normal perdeu 6 pontos no TrashBox,
+  em troca de acertar 3 vezes mais nas cenas com vários resíduos. Com um resíduo por foto, ligue **Só um objeto por
+  foto** (o site sugere isso quando acha um item só).
 - **Limite da foto inteira:** no modo de 1 objeto e no plano B, a foto inteira decide quando a certeza **na
   categoria** passa de 50%. Antes contava a certeza da classe com 60%: papelão 45% + papel 40% (Papel com 85%) caía
   no detector, que sozinho acerta 1 em cada 3. A troca valeu 1,6 ponto no modo de 1 objeto, medida na validação.
@@ -362,9 +368,12 @@ bem iluminado e ocupando boa parte da foto continua sendo o que mais acerta.
 
 | Variável               | Padrão | Efeito                                                                  |
 | ---------------------- | ------ | ----------------------------------------------------------------------- |
+| `WASTE_DETECTOR`       | coco   | primeiro detector: `coco`, `yolo-world` ou `yoloe` (vocabulário de resíduos; precisam do CLIP) |
 | `WASTE_MODEL`          | auto   | detector: `waste_detector.pt` se existir, senão `yolov8s.pt`; `yolov8n.pt` é mais rápido, mas acha bem menos objetos |
+| `WASTE_EXTRA_MODEL`    | auto   | segundo detector, onde o primeiro não achou nada: `residuos_taco.pt`; `off` desliga |
 | `WASTE_IMGSZ`          | 640    | resolução da detecção; 960 ajuda com itens pequenos (mais lento)        |
-| `DETECTOR_CONF`        | 0.25   | confiança mínima de uma detecção                                        |
+| `DETECTOR_CONF`        | 0.55   | confiança mínima de uma detecção (escolhida nas cenas do TACO)          |
+| `WASTE_MERGE`          | 0.7    | junta caixas da mesma lixeira quando a menor está 70% dentro da outra; `off` não junta |
 | `WASTE_TTA`            | 0      | 1 = inferência com aumento de dados (vira a imagem e muda a escala: mais lenta) |
 | `WASTE_MATERIAL_MODEL` | auto   | classificador de material; `off` desliga a 2ª etapa                     |
 | `WASTE_MATERIAL_CONF`  | 0.5    | certeza mínima na categoria para a foto inteira decidir (modo lixeira e plano B) |

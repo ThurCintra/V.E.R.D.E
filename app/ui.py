@@ -434,6 +434,10 @@ def show_result(image, data_key: str, source: str) -> None:
             return
         counts = {name: sum(d.category == name for d in detections) for name in CATEGORIES}
         present = [name for name, n in counts.items() if n]
+        if len(detections) == 1 and not cfg["um_objeto"]:
+            # Com um resíduo por foto, a foto inteira acerta mais que o recorte: 91,6% × 81,0% no teste do TrashNet
+            st.caption("A foto tem um resíduo só? Ligue **Só um objeto por foto**: o sistema olha a foto inteira e "
+                       "acerta mais.")
         if len(present) == 1:
             bin_card(present[0], counts[present[0]])
         else:
