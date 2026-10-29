@@ -351,8 +351,30 @@ entre os que não perdem mais de 1 ponto na validação do TrashNet + TrashBox; 
 | todas as camadas                 | 65,7%           | 89,7% (−1,7)                  | 65,2%       | 89,5%           | 89,1%           |
 | todas as camadas, taxa 0,0001    | 64,5%           | 89,5% (−1,9)                  | 65,8%       | 90,2%           | 88,5%           |
 
-O detector de uma classe só treinado no TACO (`python -m src.train detector-taco`, ou o workflow *Treinar o
-detector com o TACO*) está sendo medido.
+Depois, o detector de uma classe só ("residuo"), um `yolo11n` treinado nas cenas de treino do TACO
+(`python -m src.train detector-taco`, ou o workflow *Treinar o detector com o TACO*; 40 épocas, ~3 h na CPU do
+GitHub). Ele acha *onde* está o lixo, e o classificador decide o material. Sistema inteiro nas 300 cenas de teste:
+
+| Sistema                                                        | F1 por objeto | Precisão | Revocação | Lixeiras da foto (F1) |
+| -------------------------------------------------------------- | ------------- | -------- | --------- | --------------------- |
+| Antes: COCO + classificador sem o TACO, conf 0,25              | 10,1%         | 16,1%    | 7,3%      | 39,6%                 |
+| COCO + classificador ajustado no TACO, conf 0,25               | 12,8%         | 20,9%    | 9,2%      | 43,0%                 |
+| YOLO-World (o padrão antigo do aplicativo) + classificador novo | 15,6%        | 23,3%    | 11,7%     | 47,1%                 |
+| **Atual: COCO + detector do TACO, conf 0,55, repetidas juntas** | **42,7%**    | **53,1%**| **35,6%** | **66,9%**             |
+
+Como o atual foi escolhido (tudo na validação; o teste só no fim):
+
+- detector: o TACO sozinho fez 41,7% e o COCO + TACO 41,0%, um empate. Ficou o COCO + TACO porque o TACO quase
+  não tem comida (8 objetos) e o COCO tem 10 classes de comida; na foto de exemplo do site, uma mesa, o TACO sozinho
+  não acha a banana nem a caixa de leite;
+- limite de confiança: o melhor a partir de 25% (abaixo disso apareciam o prato e o fundo da foto de exemplo);
+- caixas repetidas sempre juntas: a tampa e a garrafa vão para a mesma lixeira, então contam como um item;
+- voto inicial do detector do TACO (a frequência de cada categoria no TACO) × neutro: o neutro ganhou 1,2 ponto
+  na validação do TrashNet + TrashBox e perdeu 1,1 nas cenas; ficou a frequência.
+
+Limite conhecido: nas cenas, o sistema acha cerca de 1 em cada 3 resíduos (bitucas e pedaços pequenos escapam) e
+ainda confunde vidro e rejeito com plástico. Para fotos com um resíduo só, **Só um objeto por foto** continua sendo o
+modo que mais acerta.
 
 ### Dicas de captura (o que mais melhora o resultado de graça)
 
