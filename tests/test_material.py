@@ -40,7 +40,7 @@ def test_textura_confiante_vence_o_detector_no_ensemble(det_with, coco_samples):
     fake = FakeTexture("glass", "Vidro", 0.93)
     detections = det_with(fake).detect(coco_samples["vinho"], waste_only=True)
     bottles = [d for d in detections if d.label == "bottle"]
-    assert bottles and all(d.category == "Vidro" and d.command == "V" for d in bottles)
+    assert bottles and all(d.category == "Vidro" for d in bottles)
     assert all(d.material == "glass" and d.material_confidence == pytest.approx(0.93) for d in bottles)
     assert all(sum(d.probs.values()) == pytest.approx(1) for d in bottles)
     assert fake.seen  # recebeu os recortes
@@ -94,6 +94,16 @@ def test_modo_um_item_nao_inventa_quando_a_textura_duvida(det_with):
     detector = det_with(FakeTexture("cardboard", "Papel", 0.3))
     assert detector.detect(PLAIN, waste_only=True, single_item=True) == []
     assert detector.detect(PLAIN, waste_only=True) == []
+
+
+def test_modo_um_item_usa_a_certeza_da_categoria_e_nao_da_classe(det_with):
+    # Papelão 45% + papel 40%: nenhuma classe passa de 60%, mas a categoria Papel tem 85%
+    fake = FakeTexture()
+    fake.prediction = TexturePrediction(
+        "cardboard", 0.45, {"Plástico": 0.05, "Papel": 0.85, "Metal": 0.04, "Vidro": 0.03, "Orgânico/Rejeito": 0.03},
+    )
+    (whole,) = det_with(fake).detect(PLAIN, waste_only=True, single_item=True)
+    assert whole.category == "Papel" and whole.material_confidence == pytest.approx(0.45)
 
 
 def test_foto_de_perto_sem_deteccao_usa_a_foto_inteira(det_with):

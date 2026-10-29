@@ -1,0 +1,85 @@
+# Simula o Streamlit Community Cloud antes de publicar: num Python limpo, instala só o packages.txt e o
+# app/requirements.txt (com o uv, como o Streamlit Cloud), sobe o dashboard no modo site público, analisa a foto de
+# exemplo num navegador, mede a memória (o plano gratuito garante 690 MB) e confere se a precisão é a do relatório.
+name: Testar o site (Streamlit Cloud)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "app/**"
+      - "src/**"
+      - "models/material_cls.pt"
+      - "packages.txt"
+      - ".streamlit/**"
+      - ".github/workflows/site.yml"
+      - ".github/scripts/site_check.py"
+      - ".github/scripts/precision_check.py"
+      - "reports/sistema_modos.json"
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pacotes do sistema (packages.txt)
+        run: sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+
+      - name: Dependências do site (app/requirements.txt)
+        run: |
+          pip install uv
+          uv pip install --system -r app/requirements.txt 2>&1 | tee uv.log; status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Instalação::$(tail -25 uv.log | tr '\n' '|' | cut -c1-3000)"
+            exit "$status"
+          fi
+          # tail: na primeira importação, o ultralytics escreve antes que criou o arquivo de configurações
+          echo "::notice title=Versões::$(python -c 'import torch, torchvision, ultralytics, streamlit as st; print(f"torch {torch.__version__} (CUDA: {torch.version.cuda}), torchvision {torchvision.__version__}, ultralytics {ultralytics.__version__}, streamlit {st.__version__}")' | tail -1)"
+
+      - name: Subir o dashboard como no site público
+        env:
+          WASTE_PUBLIC: "1"
+        run: |
+          nohup streamlit run app/dashboard.py --server.headless true --server.port 8501 > streamlit.log 2>&1 &
+          for i in $(seq 1 90); do curl -sf http://localhost:8501/_stcore/health && exit 0; sleep 2; done
+          echo "::error title=Streamlit::não subiu: $(tail -20 streamlit.log | tr '\n' '|' | cut -c1-2500)"
+          exit 1
+
+      - name: Analisar a foto de exemplo no navegador
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+          python .github/scripts/site_check.py http://localhost:8501
+
+      - name: Memória usada
+        if: always()
+        run: |
+          pid=$(pgrep -f "streamlit run app/dashboard.py" | head -1)
+          grep -E "VmHWM|VmRSS" /proc/$pid/status
+          echo "::notice title=Memória do site::pico $(grep VmHWM /proc/$pid/status | awk '{printf "%.0f MB", $2/1024}')"
+
+      - name: Precisão no ambiente do site (teste do TrashNet)
+        env:
+          WASTE_PUBLIC: "1"
+        run: python .github/scripts/precision_check.py
+
+      - name: Erros do Streamlit
+        if: failure()
+        run: |
+          tail -60 streamlit.log
+          echo "::error title=Log do Streamlit::$(grep -iE -A3 'error|traceback' streamlit.log | tail -25 | tr '\n' '|' | cut -c1-3000)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site
+          path: |
+            site.png
+            streamlit.log
+          retention-days: 7

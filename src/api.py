@@ -1,4 +1,4 @@
-"""V.E.R.D.E.: API REST para lixeiras inteligentes e esteiras.
+"""V.E.R.D.E.: API REST para classificar resíduos.
 
     uvicorn src.api:app --host 0.0.0.0 --port 8000
 
@@ -15,8 +15,7 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, Response, Uplo
 from fastapi.concurrency import run_in_threadpool
 
 from src.database import Database
-from src.detector import Detector, load_image
-from src.hardware_controller import HardwareController, choose_action, controller_from_env
+from src.detector import Detector, best_waste, load_image
 from src.impact import compute_impact
 from src.recycling import CATEGORIES
 from src.review import ReviewCollector, review_reasons
@@ -28,7 +27,6 @@ _UNSET = object()
 def create_app(
     detector: Detector | None = None,
     db: Database | None = None,
-    controller: HardwareController | None = None,
     review: ReviewCollector | None = _UNSET,
 ) -> FastAPI:
     """Os parâmetros permitem injetar dependências nos testes; em produção vêm do ambiente."""
@@ -38,7 +36,6 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.detector = detector or Detector.from_env()
         app.state.db = db or Database()
-        app.state.controller = controller or controller_from_env()
         app.state.review = ReviewCollector.from_env() if review is _UNSET else review
         yield
         if db is None:
@@ -47,7 +44,7 @@ def create_app(
     app = FastAPI(
         title="V.E.R.D.E. - API",
         version="1.0.0",
-        description="Classifica resíduos nas 5 categorias da coleta seletiva e aciona a comporta certa.",
+        description="Classifica resíduos nas 5 categorias da coleta seletiva e indica a lixeira certa.",
         lifespan=lifespan,
     )
 
@@ -61,20 +58,16 @@ def create_app(
             "mode": state.detector.mode,
             "texture": state.detector.texture_name,
             "pipeline": state.detector.description,
-            "hardware": state.controller.backend.name,
         }
 
     @app.get("/categories")
     def categories():
-        return [
-            {"name": c.name, "color": c.color_name, "hex": c.hex, "command": c.command} for c in CATEGORIES.values()
-        ]
+        return [{"name": c.name, "color": c.color_name, "hex": c.hex} for c in CATEGORIES.values()]
 
     @app.post("/detect")
     async def detect(
         request: Request,
         file: UploadFile = File(..., description="Imagem JPEG/PNG"),
-        actuate: bool = Query(False, description="Envia o comando da comporta ao hardware"),
         save: bool = Query(True, description="Grava os resíduos detectados no histórico"),
         waste_only: bool = Query(True, description="Esconde o que não é resíduo (pessoas, carros…)"),
         single_item: bool = Query(
@@ -97,17 +90,15 @@ def create_app(
         reasons = review_reasons(detections, state.review.low_conf if state.review else 0.5, single_item)
         saved = bool(state.review and reasons and state.review.maybe_save(image, detections, "api", single_item))
 
-        action = choose_action(detections)
+        best = best_waste(detections)
         action_json = None
-        if action:
-            sent = state.controller.actuate(action.category) if actuate else False
+        if best:
+            cat = CATEGORIES[best.category]
             action_json = {
-                "category": action.category,
-                "command": action.command,
-                "bin": action.bin,
-                "label": action.label,
-                "confidence": round(action.confidence, 4),
-                "sent": sent,
+                "category": cat.name,
+                "bin": f"{cat.name} (lixeira {cat.color_name})",
+                "label": best.label,
+                "confidence": round(best.confidence, 4),
             }
         h, w = image.shape[:2]
         return {

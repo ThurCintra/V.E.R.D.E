@@ -25,6 +25,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from src import paths
 from src.paths import REVIEW_DIR
 from src.recycling import CATEGORIES
 
@@ -67,8 +68,10 @@ class ReviewCollector:
 
     @classmethod
     def from_env(cls, directory: str | Path | None = None) -> "ReviewCollector | None":
-        """``WASTE_REVIEW=0`` desliga a coleta; ``WASTE_REVIEW_CONF`` é a confiança abaixo da qual guardar."""
-        if os.environ.get("WASTE_REVIEW", "1") == "0":
+        """``WASTE_REVIEW=0`` desliga a coleta; ``WASTE_REVIEW_CONF`` é a confiança abaixo da qual guardar.
+
+        No site público, vem desligada: seriam fotos de visitantes guardadas no servidor (e baixáveis por outros)."""
+        if os.environ.get("WASTE_REVIEW", "0" if paths.PUBLIC else "1") == "0":
             return None
         return cls(directory or REVIEW_DIR, float(os.environ.get("WASTE_REVIEW_CONF", "0.5")))
 

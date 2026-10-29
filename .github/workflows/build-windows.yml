@@ -1,0 +1,120 @@
+# Gera o instalador do V.E.R.D.E. para Windows numa máquina do GitHub, testa e publica.
+#
+# - A cada push que muda o aplicativo (qualquer branch): os arquivos ficam em "Artifacts" da execução.
+# - Com uma tag de versão (git tag v1.0.0 && git push origin v1.0.0): também cria uma Release com o instalador.
+# - Manualmente: aba Actions → "Gerar instalador (Windows)" → Run workflow.
+name: Gerar instalador (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*"]  # tags sempre disparam: o GitHub não aplica o filtro de paths a elas
+    paths:
+      - "app/**"
+      - "src/**"
+      - "desktop/**"
+      - "models/material_cls.pt"
+      - "requirements.txt"
+      - "LEIA-ME-WINDOWS.txt"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: write  # para anexar os arquivos à Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências (PyTorch só de CPU)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt pyinstaller
+
+      - name: Preparar os modelos que vão no pacote
+        # O vocabulário de resíduos do YOLO-World é montado aqui (precisa do CLIP e de internet): o programa recebe
+        # o verde_yoloworld.pt pronto e roda offline, sem o CLIP
+        run: |
+          python scripts/download_model.py
+          python -c "from src.open_vocab import build_vocabulary_model; build_vocabulary_model('yolo-world')"
+          Get-ChildItem models
+
+      - name: Gerar o executável
+        run: pyinstaller desktop/verde.spec --noconfirm --distpath dist --workpath build
+
+      - name: Autoteste do executável
+        # O VERDE.exe não tem console: o resultado vai para verde.log na pasta de dados (aqui, uma temporária)
+        run: |
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\dados-exe"
+          $p = Start-Process dist\VERDE\VERDE.exe -ArgumentList "--check" -Wait -PassThru
+          Get-Content "$env:LOCALAPPDATA\VERDE\verde.log"
+          if ($p.ExitCode -ne 0) { throw "Autoteste falhou (código $($p.ExitCode))" }
+
+      - name: Gerar o instalador
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0" }
+          & $iscc "/DAppVersion=$version" desktop\verde.iss
+          if ($LASTEXITCODE -ne 0) { throw "O Inno Setup falhou" }
+          "{0:N0} MB" -f ((Get-Item dist\instalador\VERDE-Instalador.exe).Length / 1MB)
+
+      - name: Testar o instalador (instalar, abrir, desinstalar)
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\VERDE"
+          $p = Start-Process dist\instalador\VERDE-Instalador.exe -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=desktopicon" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "A instalação falhou (código $($p.ExitCode))" }
+          if (-not (Test-Path "$app\VERDE.exe")) { throw "O VERDE.exe não está em $app" }
+          # Instalado só para o usuário (sem administrador): o registro de desinstalação fica no HKCU
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{DEBF8F39-3AC4-427C-92E7-AB3C623B9320}_is1"
+          if (-not (Test-Path $key)) { throw "A instalação não ficou registrada para o usuário atual" }
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\V.E.R.D.E..lnk"
+          if (-not (Test-Path $menu)) { throw "Atalho do Menu Iniciar não foi criado" }
+          $c = Start-Process "$app\VERDE.exe" -ArgumentList "--check" -Wait -PassThru
+          Get-Content "$env:LOCALAPPDATA\VERDE\verde.log"
+          if ($c.ExitCode -ne 0) { throw "O programa instalado falhou no autoteste" }
+          # O desinstalador se copia para a pasta temporária e roda de lá: espera os arquivos sumirem
+          Start-Process "$app\unins000.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+          for ($i = 0; $i -lt 60 -and ((Test-Path "$app\VERDE.exe") -or (Test-Path $key)); $i++) { Start-Sleep 1 }
+          if ((Test-Path "$app\VERDE.exe") -or (Test-Path $key)) { throw "A desinstalação falhou" }
+          "Instalação, autoteste e desinstalação sem administrador: ok"
+
+      - name: Compactar a versão portátil
+        run: |
+          Copy-Item LEIA-ME-WINDOWS.txt dist\VERDE\
+          Compress-Archive -Path dist\VERDE -DestinationPath VERDE-portatil.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VERDE-windows
+          path: |
+            dist/instalador/VERDE-Instalador.exe
+            VERDE-portatil.zip
+          retention-days: 30
+
+      - name: Publicar na Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: V.E.R.D.E. ${{ github.ref_name }}
+          body: |
+            **Para instalar:** baixe o `VERDE-Instalador.exe` abaixo e dê dois cliques. Não precisa ser administrador.
+            Se o Windows avisar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo**.
+
+            `VERDE-portatil.zip` é a versão sem instalação: extraia e abra o `VERDE.exe`.
+          files: |
+            dist/instalador/VERDE-Instalador.exe
+            VERDE-portatil.zip

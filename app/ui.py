@@ -16,21 +16,20 @@ import streamlit as st
 from src import paths
 from src.corrections import NOT_WASTE, OPTIONS, CorrectionStore
 from src.database import Database
-from src.detector import DEEP_SCAN_RANGE, MODES, Detector, annotate  # leve: o torch só carrega no motor
-from src.hardware_controller import HardwareController, choose_action, controller_from_env
+from src.detector import DEEP_SCAN_RANGE, DEFAULT_CONF, MODES, Detector, annotate  # leve: o torch só carrega no motor
 from src.material import crop
 from src.recycling import CATEGORIES, DEFAULT_WEIGHT_G, label_pt
 from src.review import ReviewCollector
 
 EMOJI = {"Plástico": "🟥", "Papel": "🟦", "Metal": "🟨", "Vidro": "🟩", "Orgânico/Rejeito": "🟫", NOT_WASTE: "⬜"}
 DEFAULTS = {
-    "um_objeto": False, "comportas": False, "detalhes": False,
+    "um_objeto": False, "detalhes": False,
     # Painel de calibração de precisão
-    "modo": "alta", "confianca": 0.25, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
+    "modo": "alta", "confianca": DEFAULT_CONF, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
 }
 MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
 MODE_HELP = {
-    "rapido": "Só o detector (YOLOE). O mais rápido, bom para vídeo ao vivo num PC simples.",
+    "rapido": "Só os detectores (COCO + TACO). O mais rápido, bom para vídeo ao vivo num PC simples.",
     "alta": "Detector + especialista de textura (40% forma, 60% textura). Separa PET de vidro, lata de copo.",
     "ultra": "Alta precisão + Deep Scan: objetos duvidosos ganham uma segunda análise detalhada "
              "(Gemini, se houver GEMINI_API_KEY; senão, análise local de 8 variações do recorte).",
@@ -134,11 +133,6 @@ def get_db(path: str) -> Database:
 
 
 @st.cache_resource
-def get_controller() -> HardwareController:
-    return controller_from_env()
-
-
-@st.cache_resource
 def get_review(path: str) -> ReviewCollector | None:
     return ReviewCollector.from_env(path)
 
@@ -156,13 +150,15 @@ def _settings_file():
 
 
 def settings() -> dict:
-    """Configurações do usuário, guardadas em storage/configuracoes.json (valem depois de reiniciar)."""
+    """Configurações do usuário, guardadas em storage/configuracoes.json (valem depois de reiniciar). No site
+    público, valem só para a sessão de cada visitante: o arquivo seria o mesmo para todos."""
     if "_cfg" not in st.session_state:
         cfg = dict(DEFAULTS)
-        try:
-            cfg.update(json.loads(_settings_file().read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            pass
+        if not paths.PUBLIC:
+            try:
+                cfg.update(json.loads(_settings_file().read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
         st.session_state["_cfg"] = cfg
     return st.session_state["_cfg"]
 
@@ -170,8 +166,29 @@ def settings() -> dict:
 def save_setting(name: str, value) -> None:
     cfg = settings()
     cfg[name] = value
+    if paths.PUBLIC:
+        return
     _settings_file().parent.mkdir(parents=True, exist_ok=True)
     _settings_file().write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def public_notice(feature: str) -> None:
+    """Aviso de recurso que só existe no aplicativo instalado (no site, ele mudaria o sistema de todos)."""
+    st.info(f"{feature} Para usar, instale o [aplicativo para Windows]({paths.DESKTOP_APP_URL}).", icon="💻")
+
+
+class _SessionOnlyCorrections:
+    """No site público, a correção vale só para a foto na tela: o recorte não fica guardado no servidor."""
+
+    def add(self, *args, **kwargs) -> None:
+        return None
+
+    def remove(self, path) -> None:
+        pass
+
+
+def correction_store():
+    return _SessionOnlyCorrections() if paths.PUBLIC else CorrectionStore(paths.CORRECTIONS_DIR)
 
 
 def detector() -> Detector:
@@ -221,6 +238,10 @@ def calibration_panel(current_frame=None) -> None:
                                "(e piorou um pouco com vários objetos): ligue só se ajudar no seu caso.")
         if boost != cfg["realce"]:
             save_setting("realce", boost)
+        if paths.PUBLIC:  # a calibração fica no detector, que é um só para todos os visitantes
+            st.caption("Zerar o fundo da câmera fica só no aplicativo instalado.")
+            st.caption(f"Motor: {det.description}" if det is not None else "⏳ A IA ainda está carregando.")
+            return
         st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
                    "realce de contraste se ajusta à luz.")
         if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None or det is None):
@@ -243,7 +264,7 @@ def calibration_panel(current_frame=None) -> None:
 
 def first_time(key: str) -> bool:
     """True só na primeira vez nesta sessão. O Streamlit reexecuta a página a cada clique: sem isso, a mesma
-    foto seria registrada no histórico (e a comporta acionada) de novo a cada botão apertado."""
+    foto seria registrada no histórico de novo a cada botão apertado."""
     done = st.session_state.setdefault("_feito", set())
     if key in done:
         return False
@@ -379,7 +400,7 @@ def _fmt(name: str) -> str:
     return f"{EMOJI[name]} {name.split('/')[0]}"
 
 
-def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
+def _on_pick(store, image, det, i: int, key: str) -> None:
     """O usuário tocou numa categoria: guarda a correção (ou desfaz, se voltou à original)."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
     picked = st.session_state[f"pick_{key}_{i}_{det.category}"]
@@ -392,7 +413,7 @@ def _on_pick(store: CorrectionStore, image, det, i: int, key: str) -> None:
 def _items_with_corrections(image, detections, key: str):
     """Lista os itens, cada um com os botões de categoria. Devolve as detecções corrigidas."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
-    store = CorrectionStore(paths.CORRECTIONS_DIR)
+    store = correction_store()
     st.markdown("**Itens encontrados** · <span class='verde-muted'>errou? toque na categoria certa</span>",
                 unsafe_allow_html=True)
     for i, det in enumerate(detections):
@@ -403,7 +424,8 @@ def _items_with_corrections(image, detections, key: str):
                 name = label_pt(det.label).capitalize()
                 state = ""
                 if i in fixes:
-                    state = " · ✅ correção salva" if fixes[i][0] != det.category else " · ✅ confirmado"
+                    fixed = "corrigido" if paths.PUBLIC else "correção salva"
+                    state = f" · ✅ {fixed}" if fixes[i][0] != det.category else " · ✅ confirmado"
                 st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>" + prob_bar(det)
                             + scan_note(det), unsafe_allow_html=True)
                 st.pills(
@@ -416,7 +438,8 @@ def _items_with_corrections(image, detections, key: str):
     pending = [i for i in range(len(detections)) if i not in fixes]
     if pending and st.button(
         f"👍 Os outros {len(pending)} estão certos" if len(pending) < len(detections) else "👍 Está tudo certo",
-        key=f"ok_{key}", help="Confirma os itens que você não corrigiu. Isso também ensina o sistema.",
+        key=f"ok_{key}", help="Confirma os itens que você não corrigiu."
+        + ("" if paths.PUBLIC else " Isso também ensina o sistema."),
     ):
         for i in pending:
             det = detections[i]
@@ -503,6 +526,10 @@ def show_result(image, data_key: str, source: str) -> None:
             return
         counts = {name: sum(d.category == name for d in detections) for name in CATEGORIES}
         present = [name for name, n in counts.items() if n]
+        if len(detections) == 1 and not cfg["um_objeto"]:
+            # Com um resíduo por foto, a foto inteira acerta mais que o recorte: 91,6% × 81,0% no teste do TrashNet
+            st.caption("A foto tem um resíduo só? Ligue **Só um objeto por foto**: o sistema olha a foto inteira e "
+                       "acerta mais.")
         if len(present) == 1:
             bin_card(present[0], counts[present[0]])
         else:
@@ -511,9 +538,6 @@ def show_result(image, data_key: str, source: str) -> None:
             for name in present:
                 bin_card(name, counts[name])
 
-        action = choose_action(detections)
-        if cfg["comportas"] and first_time(f"actuate_{data_key}"):
-            get_controller().actuate(action.category)
         if st.button("✅ Registrar no meu impacto", type="primary", key=f"reg_{data_key}", width="stretch"):
             if first_time(f"db_{data_key}"):
                 db().add_detections(detections, source=source)

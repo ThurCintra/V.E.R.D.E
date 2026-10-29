@@ -1,0 +1,74 @@
+# Mede o sistema em fotos reais com vários resíduos (TACO: 1.500 fotos de lixo, com a caixa e o material de cada
+# objeto) e compara variações dele: detector (COCO, YOLOE, YOLO-World), limite de confiança, junção de caixas
+# repetidas e pesos do ensemble. O resultado vira um check "Resultado: cenas reais (TACO)" no commit.
+name: Avaliar em cenas reais (TACO)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/detector.py"
+      - "src/material.py"
+      - "src/material_classifier.py"
+      - "src/recycling.py"
+      - "src/evaluate.py"
+      - "src/open_vocab.py"
+      - "models/material_cls.pt"
+      - ".github/workflows/cenas.yml"
+      - ".github/scripts/scenes_grid.py"
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  cenas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências (as do site, mais o CLIP do YOLO-World)
+        run: |
+          sudo apt-get update && xargs -a packages.txt sudo apt-get install -y
+          pip install uv
+          uv pip install --system -r app/requirements.txt "clip @ https://github.com/ultralytics/CLIP/archive/refs/heads/main.zip"
+
+      - name: Fotos do TACO (guardadas entre execuções)
+        uses: actions/cache@v4
+        with:
+          path: datasets/taco_cenas
+          key: taco-cenas-1280-v2
+
+      - name: Detector candidato (da branch modelo-detector-taco, se não estiver no repositório)
+        run: |
+          if [ ! -f models/residuos_taco.pt ] && git fetch --depth 1 origin modelo-detector-taco:refs/remotes/origin/modelo-detector-taco; then
+            git show origin/modelo-detector-taco:models/residuos_taco.pt > models/residuos_taco.pt || rm -f models/residuos_taco.pt
+          fi
+          ls -la models
+
+      - name: Avaliar
+        run: |
+          set -o pipefail
+          kinds="padrao coco yoloe yolo-world"
+          if [ -f models/residuos_taco.pt ]; then kinds="padrao padrao-neutro coco taco coco+taco yoloe yoloe+taco yolo-world yolo-world+taco"; fi
+          python .github/scripts/scenes_grid.py cenas.md $kinds 2>&1 | tee cenas.log
+
+      - name: Publicar o resultado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'EOF'
+          import json, os, pathlib
+          md, log = pathlib.Path("cenas.md"), pathlib.Path("cenas.log")
+          text = md.read_text() if md.is_file() else "A avaliação falhou:\n\n```\n" + (log.read_text()[-6000:] if log.is_file() else "") + "\n```"
+          json.dump({"name": "Resultado: cenas reais (TACO)", "head_sha": os.environ["GITHUB_SHA"],
+                     "status": "completed", "conclusion": "neutral",
+                     "output": {"title": "Cenas reais (TACO)", "summary": text[:65000]}}, open("payload.json", "w"))
+          EOF
+          gh api repos/${{ github.repository }}/check-runs --method POST --input payload.json > /dev/null
