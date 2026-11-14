@@ -9,21 +9,21 @@ ui.hero("Configurações", "Ajustes opcionais. Para usar no dia a dia, não prec
 cfg = ui.settings()
 
 with st.container(border=True):
-    st.markdown("#### 🎚️ Precisão")
+    st.markdown("#### :material/tune: Precisão")
     st.markdown("O modo de operação (Rápido, Alta precisão, Ultra precisão), a confiança mínima, o tamanho dos "
                 "objetos e a calibração do fundo ficam no **painel de calibração**: na página **Analisar**, abra a "
                 "barra lateral pela setinha **»** no canto superior esquerdo.")
-    st.page_link("views/analisar.py", label="Ir para Analisar", icon="📷")
+    st.page_link("views/analisar.py", label="Ir para Analisar", icon=":material/photo_camera:")
 
 with st.container(border=True):
-    st.markdown("#### 🔧 Detalhes técnicos")
+    st.markdown("#### :material/code: Detalhes técnicos")
     tech = st.toggle("Mostrar detalhes técnicos nas análises", value=cfg["detalhes"],
                      help="Mostra a classe que o modelo viu, a confiança e o peso estimado de cada item.")
     if tech != cfg["detalhes"]:
         ui.save_setting("detalhes", tech)
 
 with st.container(border=True):
-    st.markdown("#### 🧪 Casos duvidosos")
+    st.markdown("#### :material/help: Casos duvidosos")
     collector = ui.review()
     if collector is None:
         st.caption("Desligado no site público (seriam fotos dos visitantes)." if paths.PUBLIC
@@ -34,10 +34,10 @@ with st.container(border=True):
                     "corrigir num rotulador (Roboflow, CVAT) e treinar o detector.")
         if n:
             st.download_button("Baixar casos duvidosos (.zip)", collector.export_zip(), "revisao.zip",
-                               "application/zip")
+                               "application/zip", icon=":material/download:")
 
 with st.container(border=True):
-    st.markdown("#### ℹ️ Sobre os modelos")
+    st.markdown("#### :material/memory: Sobre os modelos")
     det = ui.get_detector(wait=False)
     if det is None:
         st.caption("⏳ A IA ainda está carregando; volte em instantes.")

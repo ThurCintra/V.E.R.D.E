@@ -1,19 +1,40 @@
 # Visual do V.E.R.D.E. (o Streamlit lê este arquivo quando é iniciado na pasta do projeto, como o iniciar faz)
+# Dois temas: o claro é o padrão; o escuro vale quando o sistema do usuário está no modo escuro (ou pelo menu ⋮).
+# O CSS de app/ui.py acompanha o tema em uso (st.context.theme).
 [theme]
-base = "light"
-primaryColor = "#1F8A4C"
-backgroundColor = "#F5F8F4"
-secondaryBackgroundColor = "#E8F0E6"
-textColor = "#1C2B22"
-linkColor = "#1F8A4C"
 baseRadius = "large"
+buttonRadius = "full"
 showWidgetBorder = true
 showSidebarBorder = true
+headingFontWeights = [750, 700, 650, 650, 600, 600]
+headingFontSizes = ["2.1rem", "1.5rem", "1.2rem", "1.05rem", "1rem", "0.95rem"]
 chartCategoricalColors = ["#D62828", "#1D4ED8", "#E0B000", "#2A9D3A", "#7B4A1E"]
 
-[theme.sidebar]
+[theme.light]
+primaryColor = "#178A4A"
+backgroundColor = "#F6F8F6"
+secondaryBackgroundColor = "#ECF2ED"
+textColor = "#14211A"
+linkColor = "#127A40"
+borderColor = "#DDE6DF"
+
+[theme.light.sidebar]
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F5EE"
+secondaryBackgroundColor = "#F1F5F2"
+borderColor = "#E3EBE5"
+
+[theme.dark]
+primaryColor = "#3CC47A"
+backgroundColor = "#0D1410"
+secondaryBackgroundColor = "#17221B"
+textColor = "#E6EEE8"
+linkColor = "#5BD592"
+borderColor = "#25332A"
+
+[theme.dark.sidebar]
+backgroundColor = "#111A15"
+secondaryBackgroundColor = "#1A261F"
+borderColor = "#25332A"
 
 [client]
 toolbarMode = "viewer"   # esconde o botão "Deploy" e os menus de desenvolvedor

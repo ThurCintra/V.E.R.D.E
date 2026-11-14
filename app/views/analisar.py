@@ -17,7 +17,8 @@ from src.recycling import CATEGORIES, label_pt
 
 EXAMPLE = DATA_DIR / "mesa_garrafas_banana.jpg"
 DISPLAY_FPS = 20  # a tela da câmera contínua; a análise roda no ritmo dela, em paralelo
-SOURCES = ["📁 Enviar arquivo", "📷 Tirar foto", "🎥 Câmera contínua"]
+SOURCES = [":material/upload: Enviar arquivo", ":material/photo_camera: Tirar foto",
+           ":material/videocam: Câmera contínua"]
 if paths.PUBLIC:  # a câmera contínua é a do computador que roda o sistema: no site, a do servidor (que não tem)
     SOURCES = SOURCES[:2]
 
@@ -49,7 +50,7 @@ def empty_state() -> None:
         st.caption(f"Versão online de demonstração. A câmera contínua, a calibração do fundo e o re-treino com as "
                    f"suas correções ficam no [aplicativo para Windows]({paths.DESKTOP_APP_URL}).")
     st.write("")
-    st.markdown("**As 5 lixeiras da coleta seletiva**")
+    ui.section("As 5 lixeiras da coleta seletiva")
     ui.legend()
 
 
@@ -59,7 +60,7 @@ def analyze_video(data: bytes, name: str) -> None:
         format_func=lambda n: {1: "Cada quadro (lenta)", 3: "Normal", 10: "Rápida"}.get(n, f"1 a cada {n} quadros"),
     )
     save = st.toggle("Registrar os itens no meu impacto", value=True)
-    if not st.button("▶️ Analisar vídeo", type="primary"):
+    if not st.button("Analisar vídeo", type="primary", icon=":material/play_arrow:"):
         return
     with tempfile.NamedTemporaryFile(suffix=Path(name).suffix) as tmp:
         tmp.write(data)
@@ -101,15 +102,18 @@ def live_loop(session: LiveSession, frame_slot, counts_slot, items_slot) -> None
             last_list = now
             result, counts = session.result, session.pipeline.counts
             with counts_slot.container():
-                st.markdown("**Contados até agora** (cada objeto uma vez)")
+                ui.section("Contados até agora")
                 ui.chips({name: counts.get(name, 0) for name in CATEGORIES})
-                st.caption(f"Analisando {session.analysis_fps:.0f} quadros por segundo")
+                st.caption(f"Cada objeto é contado uma vez · analisando {session.analysis_fps:.0f} quadros por "
+                           "segundo")
             with items_slot.container():
                 for d in result.detections if result else []:
-                    st.markdown(
-                        f"**#{d.tracker_id} {label_pt(d.label).capitalize()}** · {ui.EMOJI[d.category]} "
-                        f"{d.category}" + ui.prob_bar(d) + ui.scan_note(d), unsafe_allow_html=True,
-                    )
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**{d.tracker_id}. {label_pt(d.label).capitalize()}** · "
+                            f"<span class='verde-muted'>{d.category}</span>" + ui.prob_bar(d) + ui.scan_note(d),
+                            unsafe_allow_html=True,
+                        )
         time.sleep(max(0.0, 1 / DISPLAY_FPS - (time.monotonic() - started)))
 
 
@@ -135,7 +139,8 @@ if source == SOURCES[0]:
         type=["jpg", "jpeg", "png", "webp", "bmp", "mp4", "avi", "mov", "mkv"],
     )
     if upload is None:
-        if st.button("✨ Experimentar com uma foto de exemplo", disabled=not EXAMPLE.is_file()):
+        if st.button("Experimentar com uma foto de exemplo", icon=":material/auto_awesome:",
+                     disabled=not EXAMPLE.is_file()):
             st.session_state["exemplo"] = True
         if st.session_state.get("exemplo"):
             data = EXAMPLE.read_bytes()
@@ -166,6 +171,7 @@ else:
     c1.text_input("Câmera", key="camera",
                   help="0 é a primeira webcam, 1 a segunda... ou o endereço RTSP de uma câmera IP.")
     running = c2.toggle("Ligar a câmera")
+    st.write("")
     video_col, list_col = st.columns([1.4, 1], gap="large")
     frame_slot = video_col.empty()
     counts_slot, items_slot = list_col.empty(), list_col.empty()

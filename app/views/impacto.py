@@ -25,18 +25,18 @@ def br(value: float, decimals: int = 1) -> str:
 
 
 def impact_card(col, icon: str, value: str, label: str, equivalent: str) -> None:
-    col.markdown(
-        f"<div class='verde-card verde-impact'><p class='label'>{icon} {label}</p><p class='value'>{value}</p>"
-        f"<p class='eq'>{equivalent}</p></div>",
-        unsafe_allow_html=True,
-    )
+    ui.stat(col, value, label, icon, equivalent)
 
 
 def chart_style(fig):
+    grid = "rgba(128,128,128,.18)"
     fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=10, r=10, t=50, b=10),
-        legend_title_text="", font=dict(size=13), title_font=dict(size=16),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=8, r=8, t=48, b=8),
+        legend_title_text="", font=dict(size=13), title_font=dict(size=15), bargap=0.35,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, x=0),
     )
+    fig.update_xaxes(showgrid=False, linecolor=grid)
+    fig.update_yaxes(gridcolor=grid, zeroline=False)
     return fig
 
 
@@ -77,7 +77,7 @@ st.write("")
 
 if not records:
     st.info("Ainda não há nada registrado neste período. Analise uma foto e toque em **Registrar no meu impacto**.")
-    st.page_link("views/analisar.py", label="Ir para Analisar", icon="📷")
+    st.page_link("views/analisar.py", label="Ir para Analisar", icon=":material/photo_camera:")
     st.stop()
 
 df = pd.DataFrame(records)
@@ -104,7 +104,7 @@ with left.container(border=True):
 with right.container(border=True):
     cumulative = df.sort_values("ts").assign(co2=lambda d: d["co2_kg"].cumsum())
     fig = px.area(cumulative, x="ts", y="co2", title="CO₂ evitado ao longo do tempo (kg)",
-                  labels={"ts": "", "co2": "kg"}, color_discrete_sequence=["#1F8A4C"])
+                  labels={"ts": "", "co2": "kg"}, color_discrete_sequence=[ui.TOKENS[ui.theme()]["accent"]])
     st.plotly_chart(chart_style(fig), width="stretch")
 
 with st.expander("Ver a tabela por lixeira"):
@@ -118,6 +118,7 @@ st.caption("Pesos e fatores de impacto são estimativas médias (referências EP
 label = f"{start_day:%d/%m/%Y} a {end_day:%d/%m/%Y}" if start_day else "Todo o histórico"
 stamp = f"{start_day or 'inicio'}_{end_day}"
 d1, d2, _ = st.columns([1, 1, 2])
-d1.download_button("📄 Baixar relatório (PDF)", to_pdf(records, label), f"relatorio_{stamp}.pdf", "application/pdf",
-                   type="primary", width="stretch")
-d2.download_button("📊 Baixar planilha (CSV)", to_csv(records), f"registros_{stamp}.csv", "text/csv", width="stretch")
+d1.download_button("Baixar relatório (PDF)", to_pdf(records, label), f"relatorio_{stamp}.pdf", "application/pdf",
+                   type="primary", width="stretch", icon=":material/picture_as_pdf:")
+d2.download_button("Baixar planilha (CSV)", to_csv(records), f"registros_{stamp}.csv", "text/csv", width="stretch",
+                   icon=":material/table_view:")

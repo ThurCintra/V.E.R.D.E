@@ -27,7 +27,8 @@ DEFAULTS = {
     # Painel de calibração de precisão
     "modo": "alta", "confianca": DEFAULT_CONF, "tamanho": [0.05, 70.0], "deep_scan_todos": False, "realce": False,
 }
-MODE_LABELS = {"rapido": "⚡ Rápido", "alta": "🎯 Alta precisão", "ultra": "🔬 Ultra precisão"}
+MODE_LABELS = {"rapido": ":material/bolt: Rápido", "alta": ":material/target: Alta precisão",
+               "ultra": ":material/biotech: Ultra precisão"}
 MODE_HELP = {
     "rapido": "Só os detectores (COCO + TACO). O mais rápido, bom para vídeo ao vivo num PC simples.",
     "alta": "Detector + especialista de textura (40% forma, 60% textura). Separa PET de vidro, lata de copo.",
@@ -118,8 +119,9 @@ def engine_status() -> None:
     def waiting():
         if engine_ready():
             st.rerun()  # tira o selo e o relógio da página
-        st.caption(f"⏳ Preparando a IA em segundo plano ({time.monotonic() - _engine['started']:.0f} s). "
-                   "Pode ir escolhendo a foto.")
+        st.markdown(f"<span class='verde-badge'><span class='pulse'></span>Preparando a IA em segundo plano "
+                    f"({time.monotonic() - _engine['started']:.0f} s). Pode ir escolhendo a foto.</span>",
+                    unsafe_allow_html=True)
 
     waiting()
 
@@ -174,7 +176,8 @@ def save_setting(name: str, value) -> None:
 
 def public_notice(feature: str) -> None:
     """Aviso de recurso que só existe no aplicativo instalado (no site, ele mudaria o sistema de todos)."""
-    st.info(f"{feature} Para usar, instale o [aplicativo para Windows]({paths.DESKTOP_APP_URL}).", icon="💻")
+    st.info(f"{feature} Para usar, instale o [aplicativo para Windows]({paths.DESKTOP_APP_URL}).",
+            icon=":material/desktop_windows:")
 
 
 class _SessionOnlyCorrections:
@@ -208,7 +211,7 @@ def calibration_panel(current_frame=None) -> None:
     usado para zerar o fundo."""
     cfg = settings()
     with st.sidebar:
-        st.markdown("### 🎚️ Calibração de precisão")
+        st.markdown("### :material/tune: Calibração de precisão")
         mode = st.radio(
             "Modo de operação", list(MODE_LABELS), format_func=MODE_LABELS.get,
             index=list(MODE_LABELS).index(cfg["modo"]) if cfg["modo"] in MODE_LABELS else 1,
@@ -244,7 +247,8 @@ def calibration_panel(current_frame=None) -> None:
             return
         st.caption("Com a câmera vendo a cena **vazia**, toque em Zerar fundo: o que fizer parte dela é ignorado e o "
                    "realce de contraste se ajusta à luz.")
-        if st.button("🧹 Zerar fundo e calibrar luz", width="stretch", disabled=current_frame is None or det is None):
+        if st.button("Zerar fundo e calibrar luz", width="stretch", icon=":material/cleaning_services:",
+                     disabled=current_frame is None or det is None):
             frame = current_frame() if current_frame else None
             if frame is None:
                 st.warning("Não há imagem da cena para calibrar.")
@@ -294,49 +298,137 @@ def thumbnail(image_bgr, size: int = 160):
 
 
 # ---------------------------------------------------------------- visual
+# As cores ficam em variáveis CSS, uma versão por tema: o Streamlit escolhe claro ou escuro (pelo sistema do usuário
+# ou pelo menu ⋮) e st.context.theme diz qual está em uso.
+TOKENS = {
+    "light": {
+        "surface": "#FFFFFF", "surface-2": "#F1F5F2", "border": "#DDE6DF", "text": "#14211A", "muted": "#5A6B60",
+        "accent": "#178A4A", "accent-soft": "#E3F3E9", "accent-ink": "#0F6B37", "shadow": "0 1px 2px rgba(16,40,26,.05), 0 4px 16px rgba(16,40,26,.05)",
+        "track": "#E6ECE7",
+    },
+    "dark": {
+        "surface": "#141E18", "surface-2": "#1A261F", "border": "#25332A", "text": "#E6EEE8", "muted": "#9AAFA2",
+        "accent": "#3CC47A", "accent-soft": "#173826", "accent-ink": "#7FE0A9", "shadow": "0 1px 2px rgba(0,0,0,.3)",
+        "track": "#24312A",
+    },
+}
+
 CSS = """
 <style>
-  .block-container { padding-top: 2.2rem; max-width: 1200px; }
-  h1, h2, h3 { letter-spacing: -0.01em; }
-  .verde-hero h1 { font-size: 2rem; margin: 0 0 .2rem 0; }
-  .verde-hero p { color: #4B5D52; font-size: 1.05rem; margin: 0 0 1.2rem 0; }
-  .verde-card { background: #FFFFFF; border: 1px solid #E1EAE0; border-radius: 18px; padding: 18px 20px;
-                box-shadow: 0 1px 2px rgba(20, 50, 30, .05); height: 100%; }
+  .block-container { padding-top: 2.6rem; padding-bottom: 4rem; max-width: 1180px; }
+  h1, h2, h3, h4 { letter-spacing: -0.015em; }
+
+  /* Cabeçalho de cada página */
+  .verde-hero { margin: 0 0 1.4rem 0; }
+  .verde-hero .eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 650;
+                         letter-spacing: .06em; text-transform: uppercase; color: var(--v-accent-ink);
+                         background: var(--v-accent-soft); border-radius: 999px; padding: 4px 11px; margin: 0 0 .7rem 0; }
+  .verde-hero .eyebrow::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--v-accent); }
+  .verde-hero h1 { font-size: 2.15rem; line-height: 1.15; margin: 0 0 .35rem 0; padding: 0; }
+  .verde-hero p { color: var(--v-muted); font-size: 1.06rem; margin: 0; max-width: 46rem; }
+
+  /* Cartões */
+  .verde-card { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 20px;
+                padding: 18px 20px; box-shadow: var(--v-shadow); height: 100%; }
+  div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 20px; }
+  div[data-testid="stExpander"] details { border-radius: 16px; background: var(--v-surface); }
+
+  /* Passo a passo */
   .verde-step { display: flex; gap: 14px; align-items: flex-start; }
-  .verde-step b { font-size: 1.05rem; }
-  .verde-step .n { flex: 0 0 34px; height: 34px; border-radius: 50%; background: #1F8A4C; color: #fff;
-                   display: flex; align-items: center; justify-content: center; font-weight: 700; }
-  .verde-step p { margin: .15rem 0 0 0; color: #4B5D52; font-size: .95rem; }
-  .verde-bin { border-radius: 18px; padding: 18px 22px; color: #fff; margin-bottom: 10px; }
-  .verde-bin .small { opacity: .9; font-size: .9rem; margin: 0; }
-  .verde-bin .big { font-size: 1.45rem; font-weight: 700; margin: 0; line-height: 1.25; }
+  .verde-step b { font-size: 1.02rem; }
+  .verde-step .n { flex: 0 0 32px; height: 32px; border-radius: 10px; background: var(--v-accent-soft);
+                   color: var(--v-accent-ink); display: flex; align-items: center; justify-content: center;
+                   font-weight: 750; }
+  .verde-step p { margin: .2rem 0 0 0; color: var(--v-muted); font-size: .94rem; line-height: 1.45; }
+
+  /* Lixeira indicada: faixa com a cor da lixeira à esquerda */
+  .verde-bin { display: flex; align-items: center; gap: 16px; background: var(--v-surface);
+               border: 1px solid var(--v-border); border-radius: 20px; padding: 14px 18px; margin-bottom: 10px;
+               box-shadow: var(--v-shadow); }
+  .verde-bin .swatch { flex: 0 0 52px; height: 52px; border-radius: 15px; display: flex; align-items: center;
+                       justify-content: center; font-weight: 800; font-size: 1.15rem; }
+  .verde-bin .small { color: var(--v-muted); font-size: .9rem; margin: 0; }
+  .verde-bin .big { font-size: 1.35rem; font-weight: 750; margin: 0; line-height: 1.2; color: var(--v-text); }
+
+  /* Etiquetas das lixeiras */
   .verde-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px 0; }
-  .verde-chip { background: #FFFFFF; border: 1px solid #E1EAE0; border-radius: 999px; padding: 5px 12px;
-                font-size: .95rem; }
-  .verde-muted { color: #5F7166; font-size: .92rem; }
-  .verde-impact .value { font-size: 1.9rem; font-weight: 750; margin: 0; color: #1C2B22; }
-  .verde-impact .label { margin: 0; color: #4B5D52; }
-  .verde-impact .eq { margin: .35rem 0 0 0; color: #1F8A4C; font-size: .93rem; }
-  div[data-testid="stExpander"] details { border-radius: 16px; background: #FFFFFF; }
-  .verde-probbar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: #E8EEE6;
-                   margin: 6px 0 3px 0; }
+  .verde-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--v-surface);
+                border: 1px solid var(--v-border); border-radius: 999px; padding: 5px 13px 5px 10px; font-size: .93rem; }
+  .verde-chip .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .verde-chip b { color: var(--v-muted); font-weight: 650; }
+  .verde-muted { color: var(--v-muted); font-size: .92rem; }
+  .verde-section { font-weight: 650; font-size: 1rem; margin: .6rem 0 .5rem 0; }
+
+  /* Números grandes (impacto, exemplos) */
+  .verde-stat .icon { width: 38px; height: 38px; border-radius: 12px; background: var(--v-accent-soft);
+                      display: flex; align-items: center; justify-content: center; font-size: 1.15rem;
+                      margin-bottom: .7rem; }
+  .verde-stat .value { font-size: 1.85rem; font-weight: 750; margin: 0; line-height: 1.15; color: var(--v-text);
+                       font-variant-numeric: tabular-nums; }
+  .verde-stat .label { margin: .15rem 0 0 0; color: var(--v-muted); font-size: .95rem; }
+  .verde-stat .eq { margin: .55rem 0 0 0; color: var(--v-accent-ink); font-size: .9rem; font-weight: 550; }
+
+  /* Certeza por material */
+  .verde-probbar { display: flex; gap: 2px; height: 8px; border-radius: 999px; overflow: hidden;
+                   background: var(--v-track); margin: 8px 0 4px 0; }
   .verde-probbar span { height: 100%; }
-  .verde-problabel { font-size: .85rem; color: #4B5D52; margin: 0 0 6px 0; }
-  .verde-scan { background: #F0F7F2; border-left: 4px solid #1F8A4C; border-radius: 8px; padding: 6px 10px;
-                font-size: .9rem; margin: 4px 0 6px 0; }
+  .verde-problabel { font-size: .84rem; color: var(--v-muted); margin: 0 0 6px 0; }
+  .verde-scan { background: var(--v-accent-soft); border-radius: 12px; padding: 8px 12px; font-size: .9rem;
+                margin: 4px 0 6px 0; }
+
+  /* Selo "Preparando a IA" */
+  .verde-badge { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--v-muted);
+                 background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 999px;
+                 padding: 5px 12px; margin: 0 0 .8rem 0; }
+  .verde-badge .pulse { width: 8px; height: 8px; border-radius: 50%; background: #E0B000;
+                        animation: verde-pulse 1.2s ease-in-out infinite; }
+  @keyframes verde-pulse { 50% { opacity: .3; } }
+
   /* Botões de escolha quebram linha em vez de rolar para o lado (no celular, sumiam opções) */
   div[data-testid="stButtonGroup"] [role="radiogroup"] { flex-wrap: wrap !important; overflow: visible !important;
                                                           row-gap: 6px; }
+  @media (max-width: 640px) {
+    .block-container { padding-top: 4.2rem; }
+    .verde-hero h1 { font-size: 1.7rem; }
+    .verde-card { height: auto; margin-bottom: 10px; }
+    .verde-stat .value { font-size: 1.5rem; }
+  }
 </style>
 """
 
 
+def theme() -> str:
+    """"light" ou "dark", conforme o tema em uso no navegador."""
+    kind = getattr(getattr(st.context, "theme", None), "type", None)
+    return kind if kind in TOKENS else "light"
+
+
 def style() -> None:
-    st.markdown(CSS, unsafe_allow_html=True)
+    tokens = "".join(f"--v-{name}:{value};" for name, value in TOKENS[theme()].items())
+    st.markdown(f"<style>:root{{{tokens}}}</style>" + CSS, unsafe_allow_html=True)
 
 
-def hero(title: str, subtitle: str) -> None:
-    st.markdown(f"<div class='verde-hero'><h1>{title}</h1><p>{subtitle}</p></div>", unsafe_allow_html=True)
+def hero(title: str, subtitle: str, eyebrow: str = "Coleta seletiva com IA") -> None:
+    st.markdown(
+        f"<div class='verde-hero'><p class='eyebrow'>{eyebrow}</p><h1>{title}</h1><p>{subtitle}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def section(title: str) -> None:
+    st.markdown(f"<p class='verde-section'>{title}</p>", unsafe_allow_html=True)
+
+
+def stat(col, value: str, label: str, icon: str = "", note: str = "") -> None:
+    """Cartão com um número grande: ícone, valor, o que ele é e, opcionalmente, uma comparação."""
+    col.markdown(
+        "<div class='verde-card verde-stat'>"
+        + (f"<div class='icon'>{icon}</div>" if icon else "")
+        + f"<p class='value'>{value}</p><p class='label'>{label}</p>"
+        + (f"<p class='eq'>{note}</p>" if note else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def steps(items: list[tuple[str, str]]) -> None:
@@ -349,20 +441,21 @@ def steps(items: list[tuple[str, str]]) -> None:
 
 
 def bin_card(category: str, count: int | None = None) -> None:
-    """Faixa grande na cor da lixeira: "Coloque na lixeira VERMELHA"."""
+    """A lixeira certa, com a cor dela em destaque: "Lixeira VERMELHA"."""
     cat = CATEGORIES[category]
     ink = "#1C2B22" if category == "Metal" else "#FFFFFF"  # texto escuro no amarelo
     what = f"{count} {'item' if count == 1 else 'itens'} de {category}" if count else category
     st.markdown(
-        f"<div class='verde-bin' style='background:{cat.hex};color:{ink}'>"
-        f"<p class='small'>{what}</p><p class='big'>Lixeira {cat.color_name.upper()}</p></div>",
+        f"<div class='verde-bin'><div class='swatch' style='background:{cat.hex};color:{ink}'>{count or ''}</div>"
+        f"<div><p class='small'>{what}</p><p class='big'>Lixeira {cat.color_name.upper()}</p></div></div>",
         unsafe_allow_html=True,
     )
 
 
 def chips(counts: dict[str, int], show_zero: bool = False) -> None:
     html = "".join(
-        f"<span class='verde-chip'>{EMOJI[name]} {name}" + (f" <b>×{n}</b>" if n else "") + "</span>"
+        f"<span class='verde-chip'><span class='dot' style='background:{CATEGORIES[name].hex}'></span>{name}"
+        + (f" <b>{n}</b>" if n else "") + "</span>"
         for name, n in counts.items()
         if n or show_zero
     )
@@ -392,7 +485,7 @@ def scan_note(det) -> str:
     if not det.scan:
         return ""
     who = "IA Gemini" if det.scan.source == "gemini" else "análise detalhada"
-    return f"<div class='verde-scan'>🔬 <b>{det.scan.justification}</b><br><small>Deep Scan ({who})</small></div>"
+    return f"<div class='verde-scan'><b>{det.scan.justification}</b><br><small>Deep Scan ({who})</small></div>"
 
 
 # ---------------------------------------------------------------- resultado de uma foto
@@ -414,7 +507,7 @@ def _items_with_corrections(image, detections, key: str):
     """Lista os itens, cada um com os botões de categoria. Devolve as detecções corrigidas."""
     fixes = st.session_state.setdefault(f"fix_{key}", {})
     store = correction_store()
-    st.markdown("**Itens encontrados** · <span class='verde-muted'>errou? toque na categoria certa</span>",
+    st.markdown("#### Itens encontrados\n<span class='verde-muted'>Errou? Toque na categoria certa.</span>",
                 unsafe_allow_html=True)
     for i, det in enumerate(detections):
         with st.container(border=True):
@@ -425,8 +518,8 @@ def _items_with_corrections(image, detections, key: str):
                 state = ""
                 if i in fixes:
                     fixed = "corrigido" if paths.PUBLIC else "correção salva"
-                    state = f" · ✅ {fixed}" if fixes[i][0] != det.category else " · ✅ confirmado"
-                st.markdown(f"**#{i + 1} {name}**<span class='verde-muted'>{state}</span>" + prob_bar(det)
+                    state = f" · {fixed}" if fixes[i][0] != det.category else " · confirmado"
+                st.markdown(f"**{i + 1}. {name}**<span class='verde-muted'>{state}</span>" + prob_bar(det)
                             + scan_note(det), unsafe_allow_html=True)
                 st.pills(
                     f"Categoria do item {i + 1}", OPTIONS, default=fixes.get(i, (det.category,))[0],
@@ -437,8 +530,8 @@ def _items_with_corrections(image, detections, key: str):
                 )
     pending = [i for i in range(len(detections)) if i not in fixes]
     if pending and st.button(
-        f"👍 Os outros {len(pending)} estão certos" if len(pending) < len(detections) else "👍 Está tudo certo",
-        key=f"ok_{key}", help="Confirma os itens que você não corrigiu."
+        f"Os outros {len(pending)} estão certos" if len(pending) < len(detections) else "Está tudo certo",
+        key=f"ok_{key}", icon=":material/thumb_up:", help="Confirma os itens que você não corrigiu."
         + ("" if paths.PUBLIC else " Isso também ensina o sistema."),
     ):
         for i in pending:
@@ -502,11 +595,12 @@ def show_result(image, data_key: str, source: str) -> None:
     if collector and first_time(f"review_{data_key}"):
         collector.maybe_save(image, detections, source, cfg["um_objeto"])
 
+    st.write("")
     left, right = st.columns([1.15, 1], gap="large")
     if not detections:
         left.image(rgb(image), width="stretch", output_format="JPEG")
-        with right:
-            st.markdown("### Não encontrei nenhum resíduo")
+        with right, st.container(border=True):
+            st.markdown("#### :material/search_off: Não encontrei nenhum resíduo")
             st.markdown(
                 "Tente uma foto mais de perto, com o objeto inteiro aparecendo e boa luz. Se a foto tem um objeto só, "
                 "ligue **Só um objeto por foto**: assim o sistema olha a foto inteira."
@@ -538,12 +632,13 @@ def show_result(image, data_key: str, source: str) -> None:
             for name in present:
                 bin_card(name, counts[name])
 
-        if st.button("✅ Registrar no meu impacto", type="primary", key=f"reg_{data_key}", width="stretch"):
+        if st.button("Registrar no meu impacto", type="primary", key=f"reg_{data_key}", width="stretch",
+                     icon=":material/add_task:"):
             if first_time(f"db_{data_key}"):
                 db().add_detections(detections, source=source)
             st.session_state[f"registered_{data_key}"] = True
         if st.session_state.get(f"registered_{data_key}"):
-            st.success("Registrado! Os números aparecem em **Meu impacto**.")
+            st.success("Registrado! Os números aparecem em **Meu impacto**.", icon=":material/check_circle:")
         if cfg["detalhes"]:
             with st.expander("Detalhes técnicos"):
                 technical_table(detections)

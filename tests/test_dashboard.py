@@ -48,8 +48,8 @@ def test_abre_na_pagina_analisar_sem_erros(app):
     app.run()
     assert not app.exception
     assert any("Analisar resíduos" in m.value for m in app.markdown)
-    assert [b.label for b in app.main.button] == ["✨ Experimentar com uma foto de exemplo"]
-    assert "🧹 Zerar fundo e calibrar luz" in [b.label for b in app.sidebar.button]  # painel de calibração
+    assert [b.label for b in app.main.button] == ["Experimentar com uma foto de exemplo"]
+    assert "Zerar fundo e calibrar luz" in [b.label for b in app.sidebar.button]  # painel de calibração
 
 
 def test_foto_de_exemplo_mostra_itens_e_lixeiras(app):
@@ -61,7 +61,7 @@ def test_foto_de_exemplo_mostra_itens_e_lixeiras(app):
     # foto (caixa, pote e banana) é conferido com os modelos de verdade em .github/scripts/site_check.py; aqui o
     # detector é o yolov8n, mais rápido, que acha a banana com menos de 55% de confiança
     assert "Lixeira AZUL" in html
-    assert any(b.label == "✅ Registrar no meu impacto" for b in app.button)
+    assert any(b.label == "Registrar no meu impacto" for b in app.button)
 
 
 def test_corrigir_um_item_guarda_o_exemplo(app, tmp_path):
@@ -100,7 +100,7 @@ def test_site_publico_sem_camera_do_servidor_nem_calibracao(public_app):
     public_app.run()
     assert not public_app.exception
     assert public_app.pills[0].options == ["Enviar arquivo", "Tirar foto"]  # o emoji vira ícone
-    assert "🧹 Zerar fundo e calibrar luz" not in [b.label for b in public_app.sidebar.button]
+    assert "Zerar fundo e calibrar luz" not in [b.label for b in public_app.sidebar.button]
 
 
 def test_site_publico_nao_guarda_fotos_nem_configuracoes(public_app, tmp_path):

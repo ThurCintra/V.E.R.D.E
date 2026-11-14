@@ -26,13 +26,12 @@ ui.steps(
 st.write("")
 
 c = st.columns(3)
-for col, value, label in (
-    (c[0], summary["total"], "exemplos guardados"),
-    (c[1], summary["errors"], "erros corrigidos"),
-    (c[2], summary["total"] - summary["errors"], "acertos confirmados"),
+for col, value, label, icon in (
+    (c[0], summary["total"], "exemplos guardados", "📚"),
+    (c[1], summary["errors"], "erros corrigidos", "✏️"),
+    (c[2], summary["total"] - summary["errors"], "acertos confirmados", "👍"),
 ):
-    col.markdown(f"<div class='verde-card verde-impact'><p class='value'>{value}</p><p class='label'>{label}</p></div>",
-                 unsafe_allow_html=True)
+    ui.stat(col, str(value), label, icon)
 st.write("")
 ui.chips(summary["per_category"])
 
@@ -46,8 +45,8 @@ with st.container(border=True):
                    + (" (treinado com as suas correções)" if paths.USER_MATERIAL_MODEL.is_file() else " (original)"))
     st.caption("Leva alguns minutos e usa o processador do seu computador. Na primeira vez baixa 42 MB de fotos de "
                "referência (TrashNet).")
-    if st.button("🎓 Treinar com as minhas correções", type="primary", disabled=usable < MIN_CORRECTIONS,
-                 width="stretch"):
+    if st.button("Treinar com as minhas correções", type="primary", disabled=usable < MIN_CORRECTIONS,
+                 width="stretch", icon=":material/school:"):
         bar = st.progress(0.0, "Preparando os exemplos...")
         try:
             result = retrain(
@@ -73,7 +72,7 @@ with st.container(border=True):
                             f"{(result.new_corrections_accuracy - result.old_corrections_accuracy) * 100:+.1f} pontos")
 
 if previous_model_path().is_file():
-    if st.button("↩️ Voltar ao modelo anterior", help="Desfaz o último treino."):
+    if st.button("Voltar ao modelo anterior", help="Desfaz o último treino.", icon=":material/undo:"):
         restore_previous()
         ui.reload_engine()
         st.success("Modelo anterior restaurado.")
